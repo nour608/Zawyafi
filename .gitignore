@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment and secrets
+.env
+.env.*
+*.env
+secrets.yaml
+**/secrets.yaml
+
+# Build and temp artifacts
+dist/
+build/
+coverage/
+tmp.js
+tmp.wasm
+*.log
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+
+# Docs
+docs/
+
+# Foundry (smart-contracts)
+smart-contracts/lib/
+smart-contracts/cache/
+smart-contracts/out/
+smart-contracts/broadcast/
+smart-contracts/.env

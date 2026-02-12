@@ -1,0 +1,51 @@
+name: CI
+
+permissions: {}
+
+on:
+  push:
+    paths:
+      - "smart-contracts/**"
+      - ".github/workflows/smart-contracts.yml"
+  pull_request:
+    paths:
+      - "smart-contracts/**"
+      - ".github/workflows/smart-contracts.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Foundry project
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install dependencies
+        run: |
+          forge install foundry-rs/forge-std@1801b0541f4fda118a10798fd3486bb7051c5dd6 --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@fcbae5394ae8ad52d8e580a3477db99814b9d565 --no-git
+        working-directory: smart-contracts
+
+      - name: Show Forge version
+        run: forge --version
+        working-directory: smart-contracts
+
+      - name: Run Forge fmt
+        run: forge fmt --check
+        working-directory: smart-contracts
+
+      - name: Run Forge build
+        run: forge build --sizes
+        working-directory: smart-contracts
+
+      - name: Run Forge tests
+        run: forge test -vvv
+        working-directory: smart-contracts

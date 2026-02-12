@@ -1,0 +1,8 @@
+{
+  "solidity.remappings": [
+    "@openzeppelin/=smart-contracts/lib/openzeppelin-contracts/",
+    "forge-std/=smart-contracts/lib/forge-std/src/"
+  ],
+  "solidity.packageDefaultDependenciesDirectory": "smart-contracts/lib",
+  "solidity.packageDefaultDependenciesContractsDirectory": ""
+}
