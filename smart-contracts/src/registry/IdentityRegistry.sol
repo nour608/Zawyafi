@@ -3,13 +3,18 @@ pragma solidity 0.8.33;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IIdentityRegistry} from "../interfaces/IIdentityRegistry.sol";
-import {DataTypes} from "../types/DataTypes.sol";
 
 /// @title IdentityRegistry
 /// @notice Simplified Identity Registry for ERC-3643 compliant tokens
 /// @dev Stores whitelist of wallet addresses mapped to country codes
-contract IdentityRegistry is DataTypes, AccessControl {
+contract IdentityRegistry is AccessControl {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
+    struct Profile {
+        address walletAddress;
+        bool verified;
+        bool freezed;
+    }
 
     /// @notice Mapping from address to whitelist status
     mapping(address => Profile) public profiles;
