@@ -47,6 +47,18 @@ contract RevenueRegistry is AccessControl, Pausable, IRevenueRegistry {
         );
     }
 
+    function setStatus(bytes32 periodId, InventoryTypes.PeriodStatus status) external whenNotPaused {
+        require(_recorded[periodId], "RevenueRegistry: period not found");
+        require(
+            hasRole(ORACLE_ROLE, msg.sender) || hasRole(ADMIN_ROLE, msg.sender),
+            "RevenueRegistry: only oracle can update status"
+        );
+        InventoryTypes.PeriodStatus previousStatus = _reports[periodId].status;
+        _reports[periodId].status = status;
+
+        emit PeriodStatusUpdated(periodId, previousStatus, status);
+    }
+
     function isPeriodRecorded(bytes32 periodId) external view returns (bool) {
         return _recorded[periodId];
     }

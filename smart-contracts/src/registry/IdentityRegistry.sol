@@ -78,6 +78,14 @@ contract IdentityRegistry is AccessControl {
         return profiles[agent].verified;
     }
 
+    function isFreezed(address agent) external view returns (bool) {
+        return profiles[agent].freezed;
+    }
+
+    function isBlacklisted(address agent) external view returns (bool) {
+        return blacklisted[agent];
+    }
+
     // we can add logic to set limits for number of addresses for spending limits per project,
     // e.g. the address X can't invest more than 10k USD in single project or can't hold more than 20% of the equity of the project.
 }

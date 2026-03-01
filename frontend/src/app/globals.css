@@ -1,0 +1,141 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;1,9..144,300;1,9..144,400&family=Martian+Mono:wght@300;400;500&family=Noto+Naskh+Arabic:wght@400;500;600&family=Syne:wght@600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --gold: #b8892f;
+    --gold-light: #d4a84b;
+    --gold-bright: #e8c97a;
+    --teal: #1a8a7d;
+    --teal-bright: #22b5a4;
+    --theme-transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    --font-inter: "Martian Mono", "Courier New", monospace;
+    --font-noto-sans: "Noto Naskh Arabic", serif;
+    --font-dm-serif: "Fraunces", Georgia, serif;
+    --font-dm-mono: "Martian Mono", "Courier New", monospace;
+    --font-arabic: "Noto Naskh Arabic", serif;
+  }
+
+  [data-theme="light"],
+  :root {
+    --bg-base: #f5f2eb;
+    --bg-warm: #ede9df;
+    --bg-surface: rgba(255, 255, 255, 0.65);
+    --panel-muted: rgba(255, 255, 255, 0.52);
+    --text-primary: #1a1a2e;
+    --text-muted: #5f6078;
+    --border-subtle: #e8e0c8;
+    --border-medium: rgba(184, 137, 47, 0.35);
+    --grid-line: rgba(184, 137, 47, 0.07);
+    --vignette: #f5f2eb;
+  }
+
+  [data-theme="dark"],
+  .dark {
+    --bg-base: #0a0c10;
+    --bg-surface: rgba(255, 255, 255, 0.04);
+    --panel-muted: rgba(255, 255, 255, 0.06);
+    --text-primary: #f0ede6;
+    --text-muted: rgba(214, 217, 228, 0.74);
+    --border-subtle: #2a2a3e;
+    --border-medium: rgba(201, 168, 76, 0.28);
+    --grid-line: rgba(201, 168, 76, 0.04);
+    --vignette: #0a0c10;
+  }
+
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    transition: background var(--theme-transition), color var(--theme-transition), border-color var(--theme-transition);
+    @apply font-body min-h-screen antialiased;
+  }
+
+  ::selection {
+    background-color: rgba(26, 138, 125, 0.2);
+    color: var(--teal);
+  }
+
+  /* Optional default border color fallback for standard elements if needed */
+  * {
+    border-color: var(--border-subtle);
+  }
+}
+
+@layer components {
+
+  /* ChilliwackConnect-style container */
+  .cc-container {
+    @apply mx-auto w-full max-w-1344 px-4 sm:px-6 lg:px-8;
+  }
+
+  /* Animated underline for nav links */
+  .cc-nav-link {
+    @apply relative text-sm font-medium text-cc-text-sec hover:text-cc-text transition-colors duration-300;
+  }
+
+  .cc-nav-link::after {
+    content: '';
+    @apply absolute bottom-0 left-0 h-[1.5px] w-full bg-cc-text origin-left scale-x-0 transition-transform duration-300;
+  }
+
+  .cc-nav-link:hover::after {
+    @apply scale-x-100;
+  }
+
+  /* Green status dot */
+  .cc-dot {
+    @apply relative flex size-2;
+  }
+
+  .cc-dot::before {
+    content: '';
+    @apply absolute inline-flex h-full w-full animate-ping rounded-full bg-cc-accent opacity-75;
+  }
+
+  .cc-dot::after {
+    content: '';
+    @apply relative inline-flex size-2 rounded-full bg-cc-accent;
+  }
+
+  /* Card hover arrow animation */
+  .cc-arrow {
+    @apply transition-transform duration-300;
+  }
+
+  .group:hover .cc-arrow {
+    @apply translate-x-1;
+  }
+
+  /* Section padding helper */
+  .cc-section {
+    @apply py-20 md:py-28 relative;
+  }
+
+  /* Tag/badge pill */
+  .cc-tag {
+    @apply inline-flex items-center rounded-full bg-[var(--bg-surface)] backdrop-blur-[10px] border border-[var(--border-subtle)] px-3 py-1 text-xs font-mono font-medium text-[var(--text-muted)];
+  }
+
+  /* Zawyafi-style card */
+  .cc-card {
+    @apply relative overflow-hidden rounded-[2px] bg-[var(--bg-surface)] backdrop-blur-[10px] border border-[var(--border-subtle)] transition-all duration-500 shadow-[0_2px_8px_rgba(26,26,46,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.3)] dark:inset-0;
+  }
+
+  .cc-card:hover {
+    @apply border-[var(--gold)] shadow-[0_8px_24px_rgba(0,0,0,0.12)];
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

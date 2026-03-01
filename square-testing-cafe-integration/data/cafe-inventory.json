@@ -1,0 +1,29 @@
+{
+  "name": "Zawyafi Cafe",
+  "categories": [
+    {
+      "name": "Coffee",
+      "products": [
+        { "name": "Espresso", "priceMinor": 350 },
+        { "name": "Cappuccino", "priceMinor": 480 },
+        { "name": "Vanilla Latte", "priceMinor": 560 }
+      ]
+    },
+    {
+      "name": "Bakery",
+      "products": [
+        { "name": "Butter Croissant", "priceMinor": 390 },
+        { "name": "Blueberry Muffin", "priceMinor": 430 },
+        { "name": "Cinnamon Roll", "priceMinor": 470 }
+      ]
+    },
+    {
+      "name": "Sandwiches",
+      "products": [
+        { "name": "Turkey Club", "priceMinor": 950 },
+        { "name": "Chicken Pesto Panini", "priceMinor": 1020 },
+        { "name": "Veggie Halloumi Wrap", "priceMinor": 890 }
+      ]
+    }
+  ]
+}

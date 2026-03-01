@@ -1,0 +1,12 @@
+{
+  "schedule": "*/1 * * * *",
+  "backendBaseUrl": "http://127.0.0.1:3000",
+  "backendInternalToken": "",
+  "readyOnchainPath": "/internal/kyc/ready-onchain",
+  "onchainResultPath": "/internal/kyc/onchain-result",
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "isTestnet": true,
+  "kycReceiverAddress": "0x0000000000000000000000000000000000000000",
+  "gasLimit": "700000",
+  "maxBatch": 25
+}

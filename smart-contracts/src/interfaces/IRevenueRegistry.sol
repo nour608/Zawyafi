@@ -12,8 +12,12 @@ interface IRevenueRegistry {
         uint256 netUnitsSold,
         bytes32 batchHash
     );
+    event PeriodStatusUpdated(
+        bytes32 indexed periodId, InventoryTypes.PeriodStatus previousStatus, InventoryTypes.PeriodStatus newStatus
+    );
 
     function recordPeriod(InventoryTypes.PeriodReport calldata report) external;
+    function setStatus(bytes32 periodId, InventoryTypes.PeriodStatus status) external;
 
     function isPeriodRecorded(bytes32 periodId) external view returns (bool);
 

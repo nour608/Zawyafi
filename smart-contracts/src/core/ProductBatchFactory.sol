@@ -42,8 +42,8 @@ contract ProductBatchFactory is AccessControl, Pausable, ReentrancyGuard, IProdu
         bytes32 merchantIdHash, // unique identifier for the merchant (comes from offchain)
         bytes32 productIdHash,
         address purchaseToken,
-        uint256 unitCost,
-        uint256 unitPayout,
+        uint256 unitCost, // e.g. 100 USDC
+        uint256 unitPayout, // e.g. 110 USDC, 10% profit for investors
         uint256 unitsForSale,
         string calldata tokenName,
         string calldata tokenSymbol,

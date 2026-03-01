@@ -6,16 +6,31 @@ node_modules/
 .env
 .env.*
 *.env
+**/.env
+**/.env.*
+**/*.env
 secrets.yaml
 **/secrets.yaml
+secrets.yml
+**/secrets.yml
+**/*secret*
+**/*secrets*
+!secrets.yaml
+!**/secrets.yaml
+!secrets.yml
+!**/secrets.yml
 
 # Build and temp artifacts
 dist/
 build/
+**/.next/
 coverage/
 tmp.js
 tmp.wasm
 *.log
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
 
 # OS/editor files
 .DS_Store
@@ -23,6 +38,8 @@ Thumbs.db
 
 # Docs
 docs/
+
+resouces/
 
 # Foundry (smart-contracts)
 smart-contracts/lib/

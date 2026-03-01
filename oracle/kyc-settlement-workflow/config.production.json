@@ -1,0 +1,12 @@
+{
+  "schedule": "*/1 * * * *",
+  "backendBaseUrl": "https://api.example.com",
+  "backendInternalToken": "",
+  "readyOnchainPath": "/internal/kyc/ready-onchain",
+  "onchainResultPath": "/internal/kyc/onchain-result",
+  "chainSelectorName": "ethereum-mainnet",
+  "isTestnet": false,
+  "kycReceiverAddress": "0x0000000000000000000000000000000000000000",
+  "gasLimit": "700000",
+  "maxBatch": 25
+}

@@ -1,0 +1,13 @@
+{
+  "schedule": "*/1 * * * *",
+  "backendBaseUrl": "http://127.0.0.1:3100",
+  "backendInternalToken": "",
+  "readyPath": "/internal/compliance/ready",
+  "resultPath": "/internal/compliance/report-result",
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "isTestnet": true,
+  "revenueRegistryAddress": "0x179f312e78d66ac8d1a0be97f0c44913b393655d",
+  "revenueRegistryDeployBlock": "0",
+  "maxBatch": 25,
+  "gaslessReadMode": true
+}

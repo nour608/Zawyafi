@@ -1,0 +1,13 @@
+{
+  "schedule": "*/1 * * * *",
+  "backendBaseUrl": "https://api.example.com",
+  "backendInternalToken": "",
+  "readyPath": "/internal/compliance/ready",
+  "resultPath": "/internal/compliance/report-result",
+  "chainSelectorName": "ethereum-mainnet",
+  "isTestnet": false,
+  "revenueRegistryAddress": "0x0000000000000000000000000000000000000000",
+  "revenueRegistryDeployBlock": "0",
+  "maxBatch": 25,
+  "gaslessReadMode": true
+}

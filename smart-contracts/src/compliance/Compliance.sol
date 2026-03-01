@@ -43,7 +43,9 @@ contract Compliance is ICompliance, Ownable {
         }
 
         // Regular transfer: both 'from' and 'to' must be verified
-        return identityRegistry.isVerified(from) && identityRegistry.isVerified(to);
+        return identityRegistry.isVerified(from) && identityRegistry.isVerified(to) && !identityRegistry.isFreezed(from)
+            && !identityRegistry.isFreezed(to) && !identityRegistry.isBlacklisted(from)
+            && !identityRegistry.isBlacklisted(to);
     }
 
     /// @notice Update the identity registry address

@@ -21,6 +21,7 @@ contract SettlementVault is AccessControl, Pausable, ReentrancyGuard, ISettlemen
 
     IProductBatchFactory public immutable factory;
 
+    mapping(uint256 => uint256) public batchLiquidity;
     mapping(uint256 => uint256) public unitsSettled;
     mapping(uint256 => uint256) public unitsClaimed;
     mapping(uint256 => mapping(bytes32 => bool)) public periodAlreadySettled;
@@ -45,8 +46,12 @@ contract SettlementVault is AccessControl, Pausable, ReentrancyGuard, ISettlemen
         InventoryTypes.Batch memory batch = factory.getBatch(batchId);
         require(batch.id != 0, "SettlementVault: unknown batch");
 
+        uint256 beforeBalance = IERC20(batch.purchaseToken).balanceOf(address(this));
         IERC20(batch.purchaseToken).safeTransferFrom(msg.sender, address(this), amount);
-        emit BatchFunded(batchId, msg.sender, amount);
+        uint256 receivedAmount = IERC20(batch.purchaseToken).balanceOf(address(this)) - beforeBalance;
+        batchLiquidity[batchId] += receivedAmount;
+
+        emit BatchFunded(batchId, msg.sender, receivedAmount);
     }
 
     function settleUnits(bytes32 periodId, uint256 batchId, uint256 netUnitsSold)
@@ -64,7 +69,7 @@ contract SettlementVault is AccessControl, Pausable, ReentrancyGuard, ISettlemen
         require(batch.unitPayout > 0, "SettlementVault: invalid unit payout");
 
         uint256 remainingUnits = batch.unitsSoldToInvestors - unitsSettled[batchId];
-        uint256 liquidityUnits = IERC20(batch.purchaseToken).balanceOf(address(this)) / batch.unitPayout;
+        uint256 liquidityUnits = batchLiquidity[batchId] / batch.unitPayout;
 
         unitsSettledNow = netUnitsSold;
         if (unitsSettledNow > remainingUnits) {
@@ -104,6 +109,7 @@ contract SettlementVault is AccessControl, Pausable, ReentrancyGuard, ISettlemen
         payoutAmount = unitsToRedeem * batch.unitPayout;
 
         unitsClaimed[batchId] += unitsToRedeem;
+        batchLiquidity[batchId] -= payoutAmount;
 
         UnitToken(batch.unitToken).burnFrom(msg.sender, burnAmount);
         IERC20(batch.purchaseToken).safeTransfer(msg.sender, payoutAmount);

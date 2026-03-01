@@ -7,6 +7,7 @@ import {ProductBatchFactory} from "../src/core/ProductBatchFactory.sol";
 import {RevenueRegistry} from "../src/core/RevenueRegistry.sol";
 import {SettlementVault} from "../src/core/SettlementVault.sol";
 import {OracleCoordinator} from "../src/core/OracleCoordinator.sol";
+import {KycOracleReceiver} from "../src/core/KycOracleReceiver.sol";
 import {Compliance} from "../src/compliance/Compliance.sol";
 import {IdentityRegistry} from "../src/registry/IdentityRegistry.sol";
 
@@ -20,9 +21,12 @@ contract DeployInventoryCore is Script {
             ProductBatchFactory factory,
             RevenueRegistry revenueRegistry,
             SettlementVault settlementVault,
-            OracleCoordinator oracleCoordinator
+            OracleCoordinator oracleCoordinator,
+            KycOracleReceiver kycOracleReceiver
         )
     {
+        address forwarder = vm.envAddress("FORWARDER_ADDRESS");
+
         vm.startBroadcast();
 
         identityRegistry = new IdentityRegistry();
@@ -34,10 +38,13 @@ contract DeployInventoryCore is Script {
         factory.setSettlementVault(address(settlementVault));
 
         revenueRegistry = new RevenueRegistry(msg.sender, address(0));
-        oracleCoordinator = new OracleCoordinator(address(revenueRegistry), address(settlementVault), msg.sender, msg.sender);
+        oracleCoordinator =
+            new OracleCoordinator(address(revenueRegistry), address(settlementVault), msg.sender, msg.sender, forwarder);
+        kycOracleReceiver = new KycOracleReceiver(address(identityRegistry), msg.sender, forwarder);
 
         revenueRegistry.grantRole(revenueRegistry.ORACLE_ROLE(), address(oracleCoordinator));
         settlementVault.grantRole(settlementVault.ORACLE_ROLE(), address(oracleCoordinator));
+        identityRegistry.grantRole(identityRegistry.ADMIN_ROLE(), address(kycOracleReceiver));
 
         vm.stopBroadcast();
     }
