@@ -1,6 +1,9 @@
 'use client'
 
+import React from 'react'
+import Link from 'next/link'
 import { useActiveAccount } from 'thirdweb/react'
+import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DataState } from '@/components/ui/data-state'
 import { usePortfolio } from '@/lib/api/hooks'
@@ -15,7 +18,14 @@ export const InvestorPortfolioPanel = () => {
 
   return (
     <Card>
-      <h2 className="font-heading text-lg font-semibold">Portfolio Snapshot</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-lg font-semibold">Portfolio Snapshot</h2>
+        {isConnected ? (
+          <Link href="/compliance/kyc">
+            <Button variant="secondary">Start KYC</Button>
+          </Link>
+        ) : null}
+      </div>
       {!isConnected ? <p className="mt-3 text-sm text-warning">Connect your wallet to load positions and claimables.</p> : null}
       <DataState
         isLoading={portfolioQuery.isLoading}

@@ -11,7 +11,7 @@ test('landing renders hero and wallet login action', async ({ page }) => {
   expect(accessibility.violations).toEqual([])
 })
 
-test('marketplace renders API-driven listings and connect button', async ({ page }) => {
+test('marketplace hides listings while disconnected and shows connect action', async ({ page }) => {
   await page.route('**/frontend/batches', async (route) => {
     await route.fulfill({
       status: 200,
@@ -41,6 +41,8 @@ test('marketplace renders API-driven listings and connect button', async ({ page
 
   await page.goto('/investor/marketplace')
 
-  await expect(page.getByText('Batch #11')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Connect' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect Wallet' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'ALL' })).toHaveCount(0)
+  await expect(page.getByPlaceholder('Search by symbol or batch id')).toHaveCount(0)
+  await expect(page.getByText('Batch #11')).toHaveCount(0)
 })

@@ -17,10 +17,11 @@ export const useOverview = (date: string) =>
     queryFn: () => apiClient.getOverview(date),
   })
 
-export const useBatches = () =>
+export const useBatches = (enabled = true) =>
   useQuery({
     queryKey: ['batches'],
     queryFn: () => apiClient.getBatches(),
+    enabled,
   })
 
 export const usePeriods = (params?: { batchId?: number; status?: 'VERIFIED' | 'UNVERIFIED'; cursor?: string }) =>

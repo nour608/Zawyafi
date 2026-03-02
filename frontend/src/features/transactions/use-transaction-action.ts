@@ -6,18 +6,20 @@ import { useSendTransaction, useWaitForReceipt } from 'thirdweb/react'
 import type { TxLifecycleState } from '@/lib/types/frontend'
 import { thirdwebClient } from '@/lib/web3/client'
 
-const EMPTY_TX_HASH = `0x${'0'.repeat(64)}` as const
-
 export const useTransactionAction = () => {
   const [localError, setLocalError] = useState<string | null>(null)
 
   const { mutateAsync: sendTransactionAsync, isPending: isSigning, data: sentTx, reset: resetSendTx } = useSendTransaction()
   const transactionHash = sentTx?.transactionHash as `0x${string}` | undefined
-  const receipt = useWaitForReceipt({
-    client: thirdwebClient,
-    chain: sepolia,
-    transactionHash: transactionHash ?? EMPTY_TX_HASH,
-  })
+  const receipt = useWaitForReceipt(
+    transactionHash
+      ? {
+          client: thirdwebClient,
+          chain: sepolia,
+          transactionHash,
+        }
+      : undefined,
+  )
 
   const state: TxLifecycleState = useMemo(() => {
     if (isSigning) return 'signing'
