@@ -12,9 +12,11 @@ import { computeCommitment, createNonce, sha256Hex } from './crypto'
 import type { AppConfig } from './config'
 import { loadConfig } from './config'
 import { assertInternalAuth } from './cre-trigger'
-import { openDatabase } from './db'
+import { ensurePostgresSchema, openDatabase, openPostgresPool } from './db'
 import { AppError, isAppError } from './errors'
 import { KycStore } from './kyc-store'
+import { PgComplianceStore } from './pg-compliance-store'
+import { PgKycStore } from './pg-kyc-store'
 import { createSumsubIntake, parseSumsubWebhook, verifySumsubWebhook } from './sumsub'
 import type { OnchainOutcome } from './types'
 
@@ -346,10 +348,24 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       } satisfies FastifyServerOptions['logger']),
   })
 
-  const db = openDatabase(config.kycDbPath)
-  const store = new KycStore(db)
-  const complianceStore = new ComplianceStore(db)
+  const postgresPool = config.databaseUrl ? openPostgresPool(config.databaseUrl, config.databaseSsl) : null
+  const sqliteDb = postgresPool ? null : openDatabase(config.kycDbPath)
+  const store: KycStore | PgKycStore = postgresPool ? new PgKycStore(postgresPool) : new KycStore(sqliteDb as NonNullable<typeof sqliteDb>)
+  const complianceStore: ComplianceStore | PgComplianceStore = postgresPool
+    ? new PgComplianceStore(postgresPool)
+    : new ComplianceStore(sqliteDb as NonNullable<typeof sqliteDb>)
   const rateLimitBuckets = new Map<string, RateLimitBucket>()
+
+  if (postgresPool) {
+    app.addHook('onReady', async () => {
+      await ensurePostgresSchema(postgresPool)
+      app.log.info('Postgres schema ensured')
+    })
+
+    app.addHook('onClose', async () => {
+      await postgresPool.end()
+    })
+  }
 
   app.removeContentTypeParser('application/json')
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
@@ -429,7 +445,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
 
     const nonce = createNonce()
-    const record = store.createRequest(
+    const record = await store.createRequest(
       {
         wallet: parsed.data.wallet,
         chainId: parsed.data.chainId,
@@ -439,7 +455,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     )
 
     if (!config.kycHmacKey || !config.sumsubAppToken || !config.sumsubSecretKey) {
-      store.recordIntakeFailure(
+      await store.recordIntakeFailure(
         {
           requestId: record.requestId,
           outcome: 'TERMINAL',
@@ -467,7 +483,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
         requestId: record.requestId,
       })
 
-      const updated = store.bindApplicant(
+      const updated = await store.bindApplicant(
         {
           requestId: record.requestId,
           commit,
@@ -487,7 +503,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       const intakeError = classifyIntakeError(error)
       const terminal = intakeError.statusCode >= 400 && intakeError.statusCode < 500 && intakeError.statusCode !== 429
 
-      store.recordIntakeFailure(
+      await store.recordIntakeFailure(
         {
           requestId: record.requestId,
           outcome: terminal ? 'TERMINAL' : 'RETRYABLE',
@@ -518,7 +534,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       throw new AppError('INVALID_INPUT', 'Invalid requestId', 400)
     }
 
-    const record = store.getByRequestId(parsed.data.requestId)
+    const record = await store.getByRequestId(parsed.data.requestId)
     if (!record) {
       throw new AppError('REQUEST_NOT_FOUND', 'KYC request not found', 404)
     }
@@ -560,7 +576,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
 
     const payload = parseBody(req)
     const parsed = parseSumsubWebhook(payload)
-    const inserted = store.recordWebhookEvent(
+    const inserted = await store.recordWebhookEvent(
       {
         eventId: parsed.eventId,
         applicantId: parsed.applicantId,
@@ -576,7 +592,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       }
     }
 
-    const updated = store.applySumsubReview(
+    const updated = await store.applySumsubReview(
       {
         applicantId: parsed.applicantId,
         reviewAnswer: parsed.reviewAnswer,
@@ -603,7 +619,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       })
     }
 
-    const updated = store.bindApplicant(parsed.data, now())
+    const updated = await store.bindApplicant(parsed.data, now())
     return {
       requestId: updated.requestId,
       status: updated.status,
@@ -619,7 +635,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       throw new AppError('INVALID_INPUT', 'Invalid query parameters', 400)
     }
 
-    const records = store.claimReadyOnchain(parsed.data.limit, config.kycOnchainLockSeconds, now())
+    const records = await store.claimReadyOnchain(parsed.data.limit, config.kycOnchainLockSeconds, now())
     return {
       records: records.map((record) => ({
         requestId: record.requestId,
@@ -643,7 +659,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
 
     const payload = parsed.data
-    const updated = store.recordOnchainResult(
+    const updated = await store.recordOnchainResult(
       {
         requestId: payload.requestId,
         txHash: payload.txHash,
@@ -683,7 +699,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
 
     assertDateWindow(parsed.data.startDate, parsed.data.endDate, 90)
 
-    const created = complianceStore.createRequest(
+    const created = await complianceStore.createRequest(
       {
         merchantIdHash: parsed.data.merchantIdHash,
         startDate: parsed.data.startDate,
@@ -707,12 +723,12 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       throw new AppError('INVALID_INPUT', 'Invalid requestId', 400)
     }
 
-    const record = complianceStore.getRequestById(parsed.data.requestId)
+    const record = await complianceStore.getRequestById(parsed.data.requestId)
     if (!record) {
       throw new AppError('REQUEST_NOT_FOUND', 'Compliance request not found', 404)
     }
 
-    const report = record.status === 'SUCCEEDED' ? complianceStore.getPacketByRequestId(record.requestId) : null
+    const report = record.status === 'SUCCEEDED' ? await complianceStore.getPacketByRequestId(record.requestId) : null
 
     return {
       requestId: record.requestId,
@@ -739,7 +755,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
 
     const limit = parsed.data.limit ?? config.complianceReadyLimitDefault
-    const records = complianceStore.claimReady(limit, config.complianceLockSeconds, now())
+    const records = await complianceStore.claimReady(limit, config.complianceLockSeconds, now())
 
     return {
       records: records.map((record) => ({
@@ -765,7 +781,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       throw new AppError('INVALID_INPUT', 'Missing report payload for SUCCESS outcome', 400)
     }
 
-    const updated = complianceStore.recordResult(
+    const updated = await complianceStore.recordResult(
       {
         requestId: parsed.data.requestId,
         outcome: parsed.data.outcome,

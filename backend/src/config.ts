@@ -7,6 +7,8 @@ export interface AppConfig {
   host: string
   logLevel: string
   nodeEnv: string
+  databaseUrl?: string
+  databaseSsl: boolean
   kycDbPath: string
   internalApiToken: string
   kycHmacKey?: string
@@ -36,6 +38,15 @@ const configSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.string().default('info'),
   NODE_ENV: z.string().default('development'),
+  DATABASE_URL: z.preprocess((v: unknown) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v), z.string().url().optional()),
+  DATABASE_SSL: z.preprocess(
+    (value: unknown) => (typeof value === 'string' && value.trim().length === 0 ? undefined : value),
+    z
+      .enum(['true', 'false'])
+      .optional()
+      .default('false')
+      .transform((flag: 'true' | 'false') => flag === 'true'),
+  ),
   KYC_DB_PATH: z.string().default('./data/kyc.db'),
   INTERNAL_API_TOKEN: z.string().min(1, 'INTERNAL_API_TOKEN is required'),
   KYC_HMAC_KEY: z.preprocess((v: unknown) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v), z.string().optional()),
@@ -123,6 +134,8 @@ export const loadConfig = (): AppConfig => {
     host: env.HOST,
     logLevel: env.LOG_LEVEL,
     nodeEnv,
+    databaseUrl: env.DATABASE_URL,
+    databaseSsl: Boolean(env.DATABASE_SSL),
     kycDbPath: env.KYC_DB_PATH,
     internalApiToken: env.INTERNAL_API_TOKEN,
     kycHmacKey: env.KYC_HMAC_KEY,

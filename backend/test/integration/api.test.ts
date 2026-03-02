@@ -6,6 +6,8 @@ const testConfig = (): AppConfig => ({
   host: '127.0.0.1',
   logLevel: 'silent',
   nodeEnv: 'test',
+  databaseUrl: undefined,
+  databaseSsl: false,
   kycDbPath: ':memory:',
   internalApiToken: 'internal-token',
   kycHmacKey: 'kyc-hmac-key',

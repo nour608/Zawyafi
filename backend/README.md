@@ -4,7 +4,7 @@ Core backend service for:
 
 - Backend-owned KYC intake with Sumsub
 - Internal CRE callbacks for bind/onchain settlement
-- SQLite-backed KYC state machine and idempotency
+- Postgres-backed KYC state machine and idempotency (SQLite fallback for local/tests)
 - Proxying `/square/*` and `/frontend/*` to `square-testing-cafe-integration`
 
 ## Endpoints
@@ -42,7 +42,9 @@ Runs on `http://127.0.0.1:3000` by default.
 ## Notes
 
 - Configure `SQUARE_PROXY_BASE_URL` to your Square test service (default `http://127.0.0.1:3001`).
-- `KYC_DB_PATH` defaults to `./data/kyc.db`.
+- Production mode should set `DATABASE_URL` to Postgres. Schema is auto-created at startup.
+- `DATABASE_SSL=true` enables TLS for Postgres (recommended on AWS/App Runner).
+- If `DATABASE_URL` is not set, backend falls back to SQLite and `KYC_DB_PATH` (default `./data/kyc.db`).
 - `KYC_HMAC_KEY` is required for wallet commitment generation during `/kyc/start`.
 - `SUMSUB_APP_TOKEN` and `SUMSUB_SECRET_KEY` are required for backend intake calls.
 - `SUMSUB_WEBHOOK_SECRET` is required in production (`NODE_ENV=production`).
