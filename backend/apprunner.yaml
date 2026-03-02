@@ -16,3 +16,8 @@ run:
       value: production
     - name: HOST
       value: 0.0.0.0
+  secrets:
+    - name: INTERNAL_API_TOKEN
+      value-from: /zawyafi/prod/internal_api_token
+    - name: SUMSUB_WEBHOOK_SECRET
+      value-from: /zawyafi/prod/sumsub_webhook_secret

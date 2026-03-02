@@ -385,7 +385,12 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
   })
 
-  app.get('/health', async () => {
+  const getHealthPayload = async (): Promise<{
+    status: string
+    mode: string
+    squareProxyHealthy: boolean
+    timestamp: string
+  }> => {
     let proxyHealthy = true
 
     try {
@@ -403,6 +408,14 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       squareProxyHealthy: proxyHealthy,
       timestamp: now().toISOString(),
     }
+  }
+
+  app.get('/', async () => {
+    return getHealthPayload()
+  })
+
+  app.get('/health', async () => {
+    return getHealthPayload()
   })
 
   app.post('/kyc/start', async (request, reply) => {
