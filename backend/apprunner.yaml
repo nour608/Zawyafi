@@ -16,8 +16,16 @@ run:
       value: production
     - name: HOST
       value: 0.0.0.0
+    - name: CORS_ALLOWED_ORIGINS
+      value: https://zawyafi.com,https://www.zawyafi.com
   secrets:
     - name: INTERNAL_API_TOKEN
       value-from: /zawyafi/prod/internal_api_token
     - name: SUMSUB_WEBHOOK_SECRET
       value-from: /zawyafi/prod/sumsub_webhook_secret
+    - name: SUMSUB_APP_TOKEN
+      value-from: /zawyafi/prod/sumsub_app_token
+    - name: SUMSUB_SECRET_KEY
+      value-from: /zawyafi/prod/sumsub_secret_key
+    - name: KYC_HMAC_KEY
+      value-from: /zawyafi/prod/kyc_hmac_key
