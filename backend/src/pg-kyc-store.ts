@@ -147,7 +147,7 @@ export class PgKycStore {
       [input.eventId, input.applicantId, toIso(now), input.payloadHash],
     )
 
-    return result.rowCount > 0
+    return (result.rowCount ?? 0) > 0
   }
 
   async applySumsubReview(input: { applicantId: string; reviewAnswer: ReviewAnswer }, now: Date): Promise<KycRequestRecord | null> {
