@@ -81,7 +81,7 @@ export class PgComplianceStore {
     try {
       await client.query('BEGIN')
 
-      const candidates = await client.query(
+      const candidates = await client.query<{ request_id: string }>(
         `SELECT request_id
          FROM compliance_report_requests
          WHERE
@@ -99,8 +99,8 @@ export class PgComplianceStore {
         return []
       }
 
-      const ids = candidates.rows.map((candidate) => String(candidate.request_id))
-      const updated = await client.query(
+      const ids = candidates.rows.map((candidate: { request_id: string }) => String(candidate.request_id))
+      const updated = await client.query<Record<string, unknown>>(
         `UPDATE compliance_report_requests
          SET status = 'PROCESSING', processing_lock_until = $1, updated_at = $2
          WHERE request_id = ANY($3::text[])
@@ -109,7 +109,7 @@ export class PgComplianceStore {
       )
 
       await client.query('COMMIT')
-      return updated.rows.map((row) => mapRequestRow(row as Record<string, unknown>))
+      return updated.rows.map((row: Record<string, unknown>) => mapRequestRow(row))
     } catch (error) {
       await client.query('ROLLBACK')
       throw error

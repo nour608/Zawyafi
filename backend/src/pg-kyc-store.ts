@@ -216,7 +216,7 @@ export class PgKycStore {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
-      const candidates = await client.query(
+      const candidates = await client.query<{ request_id: string; status: KycStatus }>(
         `SELECT request_id, status
          FROM kyc_requests
          WHERE
@@ -233,7 +233,7 @@ export class PgKycStore {
         return []
       }
 
-      const requestIds = candidates.rows.map((row) => String(row.request_id))
+      const requestIds = candidates.rows.map((row: { request_id: string }) => String(row.request_id))
       for (const row of candidates.rows) {
         const status = row.status as KycStatus
         if (status === 'APPROVED_READY' || status === 'FAILED_RETRYABLE') {
@@ -241,7 +241,7 @@ export class PgKycStore {
         }
       }
 
-      const updated = await client.query(
+      const updated = await client.query<Record<string, unknown>>(
         `UPDATE kyc_requests
          SET status = 'APPROVED_ONCHAIN_PENDING', processing_lock_until = $1, next_retry_at = NULL, updated_at = $2
          WHERE request_id = ANY($3::text[])
@@ -250,7 +250,7 @@ export class PgKycStore {
       )
 
       await client.query('COMMIT')
-      return updated.rows.map((row) => mapRow(row as Record<string, unknown>))
+      return updated.rows.map((row: Record<string, unknown>) => mapRow(row))
     } catch (error) {
       await client.query('ROLLBACK')
       throw error
