@@ -111,7 +111,7 @@ describe('AppAccessGate', () => {
     expect(screen.getByText('KYC Content')).toBeInTheDocument()
   })
 
-  it('shows loading state while wallet status is unknown', () => {
+  it('shows connect option while wallet status is unknown', () => {
     state.connectionStatus = 'unknown'
 
     render(
@@ -120,7 +120,8 @@ describe('AppAccessGate', () => {
       </AppAccessGate>,
     )
 
-    expect(screen.getByText('Checking authentication...')).toBeInTheDocument()
+    expect(screen.getByText('Authentication required')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Connect Wallet' })).toBeInTheDocument()
     expect(screen.queryByText('Protected Content')).not.toBeInTheDocument()
   })
 })

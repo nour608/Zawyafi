@@ -63,9 +63,16 @@ export const AppAccessGate = ({ children }: AppAccessGateProps) => {
 
   if (connectionStatus === 'unknown' || connectionStatus === 'connecting') {
     return (
-      <Card className="space-y-2">
-        <h2 className="font-heading text-xl font-semibold text-text">Checking authentication...</h2>
-        <p className="text-sm text-textMuted">We are confirming your wallet session.</p>
+      <Card className="space-y-4">
+        <div>
+          <h2 className="font-heading text-xl font-semibold text-text">Authentication required</h2>
+          <p className="mt-2 text-sm text-textMuted">
+            {connectionStatus === 'connecting'
+              ? 'Connecting to your wallet...'
+              : 'We are confirming your wallet session. If this takes too long, connect your wallet manually.'}
+          </p>
+        </div>
+        <WalletActionButton labelDisconnected="Connect Wallet" variant="cc" />
       </Card>
     )
   }
