@@ -20,6 +20,12 @@ run:
       value: "true"
     - name: CORS_ALLOWED_ORIGINS
       value: https://zawyafi.com,https://www.zawyafi.com
+    - name: ADMIN_ALLOWLIST
+      value: ""
+    - name: MERCHANT_ALLOWLIST
+      value: ""
+    - name: COMPLIANCE_ALLOWLIST
+      value: ""
   secrets:
     - name: DATABASE_URL
       value-from: /zawyafi/prod/database_url

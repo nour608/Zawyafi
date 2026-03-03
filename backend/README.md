@@ -9,16 +9,25 @@ Core backend service for:
 
 ## Endpoints
 
-### Public
+### Public (no wallet auth)
 
 - `GET /health`
-- `POST /kyc/start`
-- `GET /kyc/session/:requestId`
 - `POST /kyc/webhook/sumsub`
-- `POST /compliance/reports`
-- `GET /compliance/reports/:requestId`
-- `GET|POST /square/*` (proxy)
-- `GET /frontend/*` (proxy)
+
+### Wallet-authenticated
+
+- `POST /kyc/start` (wallet must match payload wallet)
+- `GET /kyc/session/:requestId` (owner wallet only)
+- `POST /compliance/reports` (compliance/admin allowlisted wallet)
+- `GET /compliance/reports/:requestId` (compliance/admin allowlisted wallet)
+- `GET|POST /square/*` (merchant/admin allowlisted wallet)
+- `GET /frontend/*` (authenticated wallet)
+
+Wallet auth headers:
+
+- `x-auth-address`
+- `x-auth-timestamp`
+- `x-auth-signature`
 
 ### Internal (Bearer `INTERNAL_API_TOKEN`)
 
@@ -49,5 +58,6 @@ Runs on `http://127.0.0.1:3000` by default.
 - `SUMSUB_APP_TOKEN` and `SUMSUB_SECRET_KEY` are required for backend intake calls.
 - `SUMSUB_WEBHOOK_SECRET` is required in production (`NODE_ENV=production`).
 - Configure `CORS_ALLOWED_ORIGINS` with your frontend origin(s) for browser access.
+- Configure `ADMIN_ALLOWLIST`, `MERCHANT_ALLOWLIST`, and `COMPLIANCE_ALLOWLIST` for server-side role checks.
 - Tune per-IP request throttling with `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_KYC_START_MAX`, and `RATE_LIMIT_COMPLIANCE_CREATE_MAX`.
 - Compliance queue controls: `COMPLIANCE_LOCK_SECONDS`, `COMPLIANCE_RETRY_BASE_DELAY_SECONDS`, `COMPLIANCE_MAX_ATTEMPTS`.

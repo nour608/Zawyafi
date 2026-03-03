@@ -7,6 +7,7 @@ import { useActiveAccount, useActiveWallet, useConnectModal, useDisconnect } fro
 import { Button } from '@/components/ui/button'
 import { formatShortHash } from '@/lib/utils/format'
 import { cn } from '@/lib/utils/cn'
+import { clearWalletAuthSession } from '@/lib/api/wallet-auth'
 import { thirdwebClient } from '@/lib/web3/client'
 
 type WalletActionButtonProps = {
@@ -54,6 +55,7 @@ export const WalletActionButton = ({
       return
     }
 
+    clearWalletAuthSession()
     disconnect(wallet)
   }
 

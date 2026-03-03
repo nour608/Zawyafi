@@ -1,5 +1,29 @@
 import { buildApp } from '../../src/app'
 import type { AppConfig } from '../../src/config'
+import { buildWalletAuthMessage } from '../../src/wallet-auth'
+import { privateKeyToAccount } from 'viem/accounts'
+
+const investorAccount = privateKeyToAccount(`0x${'11'.repeat(32)}`)
+const merchantAccount = privateKeyToAccount(`0x${'22'.repeat(32)}`)
+const complianceAccount = privateKeyToAccount(`0x${'33'.repeat(32)}`)
+
+const authHeaders = async (params: {
+  account: ReturnType<typeof privateKeyToAccount>
+  timestampIso: string
+}): Promise<Record<string, string>> => {
+  const timestamp = String(Date.parse(params.timestampIso))
+  const message = buildWalletAuthMessage({
+    address: params.account.address,
+    timestamp,
+  })
+  const signature = await params.account.signMessage({ message })
+
+  return {
+    'x-auth-address': params.account.address,
+    'x-auth-timestamp': timestamp,
+    'x-auth-signature': signature,
+  }
+}
 
 const testConfig = (): AppConfig => ({
   port: 3000,
@@ -30,6 +54,9 @@ const testConfig = (): AppConfig => ({
   corsAllowedOrigins: ['http://127.0.0.1:3000'],
   squareProxyBaseUrl: 'https://square-proxy.local',
   squareProxyTimeoutMs: 1000,
+  adminAllowlist: [],
+  merchantAllowlist: [merchantAccount.address.toLowerCase()],
+  complianceAllowlist: [complianceAccount.address.toLowerCase()],
 })
 
 const toDigest = (secret: string, payload: string): string => {
@@ -39,6 +66,7 @@ const toDigest = (secret: string, payload: string): string => {
 
 describe('API integration', () => {
   it('creates start request and returns session', async () => {
+    const timestampIso = '2026-02-22T12:00:00.000Z'
     const app = buildApp({
       config: testConfig(),
       fetchFn: async (input: RequestInfo | URL) => {
@@ -51,14 +79,20 @@ describe('API integration', () => {
         }
         return new Response(JSON.stringify({ status: 'ok' }), { status: 200 }) as unknown as Response
       },
-      now: () => new Date('2026-02-22T12:00:00.000Z'),
+      now: () => new Date(timestampIso),
+    })
+
+    const walletHeaders = await authHeaders({
+      account: investorAccount,
+      timestampIso,
     })
 
     const start = await app.inject({
       method: 'POST',
       url: '/kyc/start',
+      headers: walletHeaders,
       payload: {
-        wallet: '0xA2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7',
+        wallet: investorAccount.address,
         chainId: 11155111,
       },
     })
@@ -70,6 +104,7 @@ describe('API integration', () => {
     const session = await app.inject({
       method: 'GET',
       url: `/kyc/session/${startBody.requestId}`,
+      headers: walletHeaders,
     })
 
     expect(session.statusCode).toBe(200)
@@ -80,6 +115,7 @@ describe('API integration', () => {
 
   it('does not return sumsub web sdk payload when app token is missing', async () => {
     const config = testConfig()
+    const timestampIso = '2026-02-22T12:00:00.000Z'
     const app = buildApp({
       config,
       fetchFn: async (input: RequestInfo | URL) => {
@@ -92,14 +128,20 @@ describe('API integration', () => {
         }
         return new Response(JSON.stringify({ status: 'ok' }), { status: 200 }) as unknown as Response
       },
-      now: () => new Date('2026-02-22T12:00:00.000Z'),
+      now: () => new Date(timestampIso),
+    })
+
+    const walletHeaders = await authHeaders({
+      account: investorAccount,
+      timestampIso,
     })
 
     const start = await app.inject({
       method: 'POST',
       url: '/kyc/start',
+      headers: walletHeaders,
       payload: {
-        wallet: '0xA2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7',
+        wallet: investorAccount.address,
         chainId: 11155111,
       },
     })
@@ -112,6 +154,7 @@ describe('API integration', () => {
     const session = await app.inject({
       method: 'GET',
       url: `/kyc/session/${startBody.requestId}`,
+      headers: walletHeaders,
     })
 
     expect(session.statusCode).toBe(200)
@@ -121,6 +164,7 @@ describe('API integration', () => {
   })
 
   it('processes start + webhook + claim + onchain result', async () => {
+    const timestampIso = '2026-02-22T12:00:00.000Z'
     const app = buildApp({
       config: testConfig(),
       fetchFn: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -136,14 +180,20 @@ describe('API integration', () => {
         }
         return new Response(JSON.stringify({ status: 'ok' }), { status: 200 }) as unknown as Response
       },
-      now: () => new Date('2026-02-22T12:00:00.000Z'),
+      now: () => new Date(timestampIso),
+    })
+
+    const investorHeaders = await authHeaders({
+      account: investorAccount,
+      timestampIso,
     })
 
     const start = await app.inject({
       method: 'POST',
       url: '/kyc/start',
+      headers: investorHeaders,
       payload: {
-        wallet: '0xA2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7',
+        wallet: investorAccount.address,
         chainId: 11155111,
       },
     })
@@ -200,6 +250,10 @@ describe('API integration', () => {
     const proxied = await app.inject({
       method: 'GET',
       url: '/square/payments/daily?merchantId=m1&date=2026-02-22',
+      headers: await authHeaders({
+        account: merchantAccount,
+        timestampIso,
+      }),
     })
 
     expect(proxied.statusCode).toBe(200)
@@ -226,6 +280,28 @@ describe('API integration', () => {
     const response = await app.inject({
       method: 'GET',
       url: '/internal/kyc/ready-onchain',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect((response.json() as { errorCode: string }).errorCode).toBe('UNAUTHORIZED')
+
+    await app.close()
+  })
+
+  it('rejects protected external endpoints with missing wallet auth', async () => {
+    const app = buildApp({
+      config: testConfig(),
+      fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/compliance/reports',
+      payload: {
+        merchantIdHash: `0x${'11'.repeat(32)}`,
+        startDate: '2026-02-01',
+        endDate: '2026-02-28',
+      },
     })
 
     expect(response.statusCode).toBe(401)
@@ -271,18 +347,25 @@ describe('API integration', () => {
   it('marks request as terminal when intake config is missing', async () => {
     const config = testConfig()
     config.kycHmacKey = undefined
+    const timestampIso = '2026-02-22T12:00:00.000Z'
 
     const app = buildApp({
       config,
       fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
-      now: () => new Date('2026-02-22T12:00:00.000Z'),
+      now: () => new Date(timestampIso),
+    })
+
+    const walletHeaders = await authHeaders({
+      account: investorAccount,
+      timestampIso,
     })
 
     const start = await app.inject({
       method: 'POST',
       url: '/kyc/start',
+      headers: walletHeaders,
       payload: {
-        wallet: '0xA2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7',
+        wallet: investorAccount.address,
         chainId: 11155111,
       },
     })
@@ -295,6 +378,7 @@ describe('API integration', () => {
     const session = await app.inject({
       method: 'GET',
       url: `/kyc/session/${payload.details?.requestId}`,
+      headers: walletHeaders,
     })
 
     expect(session.statusCode).toBe(200)
@@ -304,15 +388,22 @@ describe('API integration', () => {
   })
 
   it('creates, processes, and fetches compliance report jobs', async () => {
+    const timestampIso = '2026-02-28T12:00:00.000Z'
     const app = buildApp({
       config: testConfig(),
       fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
-      now: () => new Date('2026-02-28T12:00:00.000Z'),
+      now: () => new Date(timestampIso),
+    })
+
+    const complianceHeaders = await authHeaders({
+      account: complianceAccount,
+      timestampIso,
     })
 
     const createResponse = await app.inject({
       method: 'POST',
       url: '/compliance/reports',
+      headers: complianceHeaders,
       payload: {
         merchantIdHash: `0x${'11'.repeat(32)}`,
         startDate: '2026-02-01',
@@ -402,6 +493,7 @@ describe('API integration', () => {
     const reportResponse = await app.inject({
       method: 'GET',
       url: `/compliance/reports/${created.requestId}`,
+      headers: complianceHeaders,
     })
 
     expect(reportResponse.statusCode).toBe(200)
@@ -413,14 +505,20 @@ describe('API integration', () => {
   })
 
   it('rejects compliance report window above 90 days', async () => {
+    const timestampIso = '2026-02-28T12:00:00.000Z'
     const app = buildApp({
       config: testConfig(),
       fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
+      now: () => new Date(timestampIso),
     })
 
     const response = await app.inject({
       method: 'POST',
       url: '/compliance/reports',
+      headers: await authHeaders({
+        account: complianceAccount,
+        timestampIso,
+      }),
       payload: {
         merchantIdHash: `0x${'11'.repeat(32)}`,
         startDate: '2025-01-01',
@@ -458,11 +556,12 @@ describe('API integration', () => {
     const config = testConfig()
     config.rateLimitComplianceCreateMax = 1
     config.rateLimitWindowSeconds = 60
+    const timestampIso = '2026-02-28T12:00:00.000Z'
 
     const app = buildApp({
       config,
       fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
-      now: () => new Date('2026-02-28T12:00:00.000Z'),
+      now: () => new Date(timestampIso),
     })
 
     const payload = {
@@ -474,6 +573,10 @@ describe('API integration', () => {
     const first = await app.inject({
       method: 'POST',
       url: '/compliance/reports',
+      headers: await authHeaders({
+        account: complianceAccount,
+        timestampIso,
+      }),
       payload,
     })
     expect(first.statusCode).toBe(201)
@@ -481,6 +584,10 @@ describe('API integration', () => {
     const second = await app.inject({
       method: 'POST',
       url: '/compliance/reports',
+      headers: await authHeaders({
+        account: complianceAccount,
+        timestampIso,
+      }),
       payload,
     })
     expect(second.statusCode).toBe(429)

@@ -31,6 +31,9 @@ export interface AppConfig {
   corsAllowedOrigins: string[]
   squareProxyBaseUrl: string
   squareProxyTimeoutMs: number
+  adminAllowlist: string[]
+  merchantAllowlist: string[]
+  complianceAllowlist: string[]
 }
 
 const configSchema = z.object({
@@ -69,6 +72,9 @@ const configSchema = z.object({
   CORS_ALLOWED_ORIGINS: z.string().default('http://127.0.0.1:3000,http://localhost:3000'),
   SQUARE_PROXY_BASE_URL: z.string().url().default('http://127.0.0.1:3001'),
   SQUARE_PROXY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  ADMIN_ALLOWLIST: z.string().default(''),
+  MERCHANT_ALLOWLIST: z.string().default(''),
+  COMPLIANCE_ALLOWLIST: z.string().default(''),
 })
 
 let didLoadDotEnv = false
@@ -128,6 +134,11 @@ export const loadConfig = (): AppConfig => {
   const corsAllowedOrigins = env.CORS_ALLOWED_ORIGINS.split(',')
     .map((origin: string) => origin.trim().replace(/\/$/, '').toLowerCase())
     .filter(Boolean)
+  const parseAllowlist = (raw: string): string[] =>
+    raw
+      .split(',')
+      .map((entry: string) => entry.trim().toLowerCase())
+      .filter(Boolean)
 
   return {
     port: env.PORT,
@@ -158,5 +169,8 @@ export const loadConfig = (): AppConfig => {
     corsAllowedOrigins,
     squareProxyBaseUrl: env.SQUARE_PROXY_BASE_URL.replace(/\/$/, ''),
     squareProxyTimeoutMs: env.SQUARE_PROXY_TIMEOUT_MS,
+    adminAllowlist: parseAllowlist(env.ADMIN_ALLOWLIST),
+    merchantAllowlist: parseAllowlist(env.MERCHANT_ALLOWLIST),
+    complianceAllowlist: parseAllowlist(env.COMPLIANCE_ALLOWLIST),
   }
 }

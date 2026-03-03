@@ -19,6 +19,13 @@ import { PgComplianceStore } from './pg-compliance-store'
 import { PgKycStore } from './pg-kyc-store'
 import { createSumsubIntake, parseSumsubWebhook, verifySumsubWebhook } from './sumsub'
 import type { OnchainOutcome } from './types'
+import {
+  assertWalletScope,
+  parseWalletAuthHeaders,
+  resolveWalletCapabilities,
+  verifyWalletRequestAuth,
+  type WalletAuthScope,
+} from './wallet-auth'
 
 interface RequestWithRawBody {
   rawBodyText?: string
@@ -34,7 +41,15 @@ const loggerRedactionPaths = [
   '*.sumsubSecretKey',
 ]
 
-const corsAllowHeaders = ['Content-Type', 'Authorization', 'x-payload-digest', 'x-sumsub-signature'].join(', ')
+const corsAllowHeaders = [
+  'Content-Type',
+  'Authorization',
+  'x-payload-digest',
+  'x-sumsub-signature',
+  'x-auth-address',
+  'x-auth-timestamp',
+  'x-auth-signature',
+].join(', ')
 
 const proxyRequestHeaderAllowlist = new Set([
   'accept',
@@ -54,6 +69,7 @@ interface RateLimitBucket {
 }
 
 const RATE_LIMIT_MAX_BUCKETS = 50_000
+const WALLET_AUTH_MAX_CLOCK_SKEW_MS = 5 * 60 * 1000
 
 const startSchema = z.object({
   wallet: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
@@ -401,6 +417,31 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
   })
 
+  const assertWalletRequestAuth = async (
+    request: FastifyRequest,
+    scope: WalletAuthScope,
+  ): Promise<{ address: string; capabilities: ReturnType<typeof resolveWalletCapabilities> }> => {
+    const parsedHeaders = parseWalletAuthHeaders(request.headers)
+    const nowMs = now().getTime()
+    const verified = await verifyWalletRequestAuth({
+      headers: parsedHeaders,
+      nowMs,
+      maxClockSkewMs: WALLET_AUTH_MAX_CLOCK_SKEW_MS,
+    })
+
+    const capabilities = resolveWalletCapabilities(verified.address, {
+      adminAllowlist: config.adminAllowlist,
+      merchantAllowlist: config.merchantAllowlist,
+      complianceAllowlist: config.complianceAllowlist,
+    })
+    assertWalletScope(scope, capabilities)
+
+    return {
+      address: verified.address,
+      capabilities,
+    }
+  }
+
   const getHealthPayload = async (): Promise<{
     status: string
     mode: string
@@ -435,6 +476,8 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
   })
 
   app.post('/kyc/start', async (request, reply) => {
+    const authenticated = await assertWalletRequestAuth(request, 'authenticated')
+
     assertRateLimit(rateLimitBuckets, request, 'kyc_start', config.rateLimitKycStartMax, config.rateLimitWindowSeconds, now())
 
     const parsed = startSchema.safeParse(parseBody(request as RequestWithRawBody))
@@ -442,6 +485,10 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       throw new AppError('INVALID_INPUT', 'Invalid request payload', 400, {
         issues: parsed.error.issues.map((issue: z.ZodIssue) => ({ path: issue.path.join('.'), message: issue.message })),
       })
+    }
+
+    if (parsed.data.wallet.toLowerCase() !== authenticated.address) {
+      throw new AppError('FORBIDDEN', 'Authenticated wallet does not match payload wallet', 403)
     }
 
     const nonce = createNonce()
@@ -529,6 +576,8 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
   })
 
   app.get('/kyc/session/:requestId', async (request) => {
+    const authenticated = await assertWalletRequestAuth(request, 'authenticated')
+
     const parsed = sessionParamsSchema.safeParse(request.params)
     if (!parsed.success) {
       throw new AppError('INVALID_INPUT', 'Invalid requestId', 400)
@@ -537,6 +586,10 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     const record = await store.getByRequestId(parsed.data.requestId)
     if (!record) {
       throw new AppError('REQUEST_NOT_FOUND', 'KYC request not found', 404)
+    }
+
+    if (record.wallet.toLowerCase() !== authenticated.address) {
+      throw new AppError('FORBIDDEN', 'You are not allowed to access this KYC session', 403)
     }
 
     return {
@@ -681,6 +734,8 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
   })
 
   app.post('/compliance/reports', async (request, reply) => {
+    await assertWalletRequestAuth(request, 'compliance')
+
     assertRateLimit(
       rateLimitBuckets,
       request,
@@ -718,6 +773,8 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
   })
 
   app.get('/compliance/reports/:requestId', async (request) => {
+    await assertWalletRequestAuth(request, 'compliance')
+
     const parsed = sessionParamsSchema.safeParse(request.params)
     if (!parsed.success) {
       throw new AppError('INVALID_INPUT', 'Invalid requestId', 400)
@@ -848,12 +905,18 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
   app.route({
     method: ['GET', 'POST', 'PUT', 'DELETE'],
     url: '/square/*',
+    preHandler: async (request) => {
+      await assertWalletRequestAuth(request, 'merchant')
+    },
     handler: proxyToSquare,
   })
 
   app.route({
     method: ['GET'],
     url: '/frontend/*',
+    preHandler: async (request) => {
+      await assertWalletRequestAuth(request, 'authenticated')
+    },
     handler: proxyToSquare,
   })
 

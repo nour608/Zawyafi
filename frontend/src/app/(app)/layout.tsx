@@ -1,4 +1,5 @@
 import { Sidebar } from '@/components/layout/sidebar'
+import { AppAccessGate } from '@/components/shared/app-access-gate'
 import type { ReactNode } from 'react'
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -27,7 +28,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <Sidebar />
       </div>
       <main className="relative z-[10] flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
-        <div className="h-full overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+        <div className="h-full overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+          <AppAccessGate>{children}</AppAccessGate>
+        </div>
       </main>
     </div>
   )
