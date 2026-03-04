@@ -22,8 +22,11 @@ import { COMPLIANCE_REPORT_STATUSES, KYC_STATUSES, type OnchainOutcome } from '.
 import {
   assertWalletScope,
   parseWalletAuthHeaders,
+  parseWalletSessionHeader,
   resolveWalletCapabilities,
+  createWalletSessionToken,
   verifyWalletRequestAuth,
+  verifyWalletSessionToken,
   type WalletAuthScope,
 } from './wallet-auth'
 
@@ -49,6 +52,7 @@ const corsAllowHeaders = [
   'x-auth-address',
   'x-auth-timestamp',
   'x-auth-signature',
+  'x-auth-session',
 ].join(', ')
 
 const proxyRequestHeaderAllowlist = new Set([
@@ -502,7 +506,24 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
   })
 
-  const assertWalletRequestAuth = async (
+  const resolveAuthenticatedWallet = (
+    address: string,
+    scope: WalletAuthScope,
+  ): { address: string; capabilities: ReturnType<typeof resolveWalletCapabilities> } => {
+    const capabilities = resolveWalletCapabilities(address, {
+      adminAllowlist: config.adminAllowlist,
+      merchantAllowlist: config.merchantAllowlist,
+      complianceAllowlist: config.complianceAllowlist,
+    })
+    assertWalletScope(scope, capabilities)
+
+    return {
+      address,
+      capabilities,
+    }
+  }
+
+  const assertWalletSignatureAuth = async (
     request: FastifyRequest,
     scope: WalletAuthScope,
   ): Promise<{ address: string; capabilities: ReturnType<typeof resolveWalletCapabilities> }> => {
@@ -514,17 +535,25 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       maxClockSkewMs: WALLET_AUTH_MAX_CLOCK_SKEW_MS,
     })
 
-    const capabilities = resolveWalletCapabilities(verified.address, {
-      adminAllowlist: config.adminAllowlist,
-      merchantAllowlist: config.merchantAllowlist,
-      complianceAllowlist: config.complianceAllowlist,
-    })
-    assertWalletScope(scope, capabilities)
+    return resolveAuthenticatedWallet(verified.address, scope)
+  }
 
-    return {
-      address: verified.address,
-      capabilities,
+  const assertWalletRequestAuth = async (
+    request: FastifyRequest,
+    scope: WalletAuthScope,
+  ): Promise<{ address: string; capabilities: ReturnType<typeof resolveWalletCapabilities> }> => {
+    const nowMs = now().getTime()
+    const sessionToken = parseWalletSessionHeader(request.headers)
+    if (sessionToken) {
+      const verifiedSession = verifyWalletSessionToken({
+        token: sessionToken,
+        nowMs,
+        secret: config.walletSessionSecret,
+      })
+      return resolveAuthenticatedWallet(verifiedSession.address, scope)
     }
+
+    return assertWalletSignatureAuth(request, scope)
   }
 
   const getHealthPayload = async (): Promise<{
@@ -597,6 +626,24 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
 
   app.get('/health', async () => {
     return getHealthPayload()
+  })
+
+  app.post('/auth/session', async (request) => {
+    const authenticated = await assertWalletSignatureAuth(request, 'authenticated')
+    const session = createWalletSessionToken({
+      address: authenticated.address,
+      nowMs: now().getTime(),
+      ttlMs: config.walletSessionTtlSeconds * 1000,
+      secret: config.walletSessionSecret,
+    })
+
+    return {
+      token: session.token,
+      address: session.address,
+      issuedAt: new Date(session.issuedAtMs).toISOString(),
+      expiresAt: new Date(session.expiresAtMs).toISOString(),
+      capabilities: authenticated.capabilities,
+    }
   })
 
   const getWalletCapabilities = async (request: FastifyRequest) => {

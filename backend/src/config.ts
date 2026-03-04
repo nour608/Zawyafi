@@ -11,6 +11,8 @@ export interface AppConfig {
   databaseSsl: boolean
   kycDbPath: string
   internalApiToken: string
+  walletSessionSecret: string
+  walletSessionTtlSeconds: number
   kycHmacKey?: string
   kycCommitKeyVersion: string
   sumsubWebhookSecret?: string
@@ -52,6 +54,8 @@ const configSchema = z.object({
   ),
   KYC_DB_PATH: z.string().default('./data/kyc.db'),
   INTERNAL_API_TOKEN: z.string().min(1, 'INTERNAL_API_TOKEN is required'),
+  WALLET_SESSION_SECRET: z.preprocess((v: unknown) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v), z.string().optional()),
+  WALLET_SESSION_TTL_SECONDS: z.coerce.number().int().positive().max(60 * 60 * 24 * 7).default(8 * 60 * 60),
   KYC_HMAC_KEY: z.preprocess((v: unknown) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v), z.string().optional()),
   KYC_COMMIT_KEY_VERSION: z.string().default('v1'),
   SUMSUB_WEBHOOK_SECRET: z.preprocess((v: unknown) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v), z.string().optional()),
@@ -157,6 +161,8 @@ export const loadConfig = (): AppConfig => {
     databaseSsl: Boolean(env.DATABASE_SSL),
     kycDbPath: env.KYC_DB_PATH,
     internalApiToken: env.INTERNAL_API_TOKEN,
+    walletSessionSecret: env.WALLET_SESSION_SECRET ?? env.INTERNAL_API_TOKEN,
+    walletSessionTtlSeconds: env.WALLET_SESSION_TTL_SECONDS,
     kycHmacKey: env.KYC_HMAC_KEY,
     kycCommitKeyVersion: env.KYC_COMMIT_KEY_VERSION,
     sumsubWebhookSecret: env.SUMSUB_WEBHOOK_SECRET,

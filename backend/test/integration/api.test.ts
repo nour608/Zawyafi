@@ -34,6 +34,8 @@ const testConfig = (): AppConfig => ({
   databaseSsl: false,
   kycDbPath: ':memory:',
   internalApiToken: 'internal-token',
+  walletSessionSecret: 'wallet-session-secret',
+  walletSessionTtlSeconds: 8 * 60 * 60,
   kycHmacKey: 'kyc-hmac-key',
   kycCommitKeyVersion: 'v1',
   sumsubWebhookSecret: 'sumsub-secret',
@@ -356,6 +358,42 @@ describe('API integration', () => {
         canUseAdmin: false,
       },
     })
+
+    await app.close()
+  })
+
+  it('issues wallet session token and accepts x-auth-session on protected routes', async () => {
+    const timestampIso = '2026-03-01T12:00:00.000Z'
+    const app = buildApp({
+      config: testConfig(),
+      fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
+      now: () => new Date(timestampIso),
+    })
+
+    const complianceHeaders = await authHeaders({
+      account: complianceAccount,
+      timestampIso,
+    })
+
+    const createSession = await app.inject({
+      method: 'POST',
+      url: '/auth/session',
+      headers: complianceHeaders,
+    })
+    expect(createSession.statusCode).toBe(200)
+    const createSessionPayload = createSession.json() as { token: string; expiresAt: string }
+    expect(createSessionPayload.token.length).toBeGreaterThan(20)
+    expect(createSessionPayload.expiresAt).toContain('T')
+
+    const kycList = await app.inject({
+      method: 'GET',
+      url: '/compliance/kyc/requests',
+      headers: {
+        'x-auth-session': createSessionPayload.token,
+      },
+    })
+    expect(kycList.statusCode).toBe(200)
+    expect((kycList.json() as { records: unknown[] }).records).toEqual([])
 
     await app.close()
   })

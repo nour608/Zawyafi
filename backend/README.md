@@ -16,6 +16,7 @@ Core backend service for:
 
 ### Wallet-authenticated
 
+- `POST /auth/session` (signed wallet headers -> API session token)
 - `POST /kyc/start` (wallet must match payload wallet)
 - `GET /kyc/session/:requestId` (owner wallet only)
 - `GET /compliance/kyc/requests` (compliance/admin allowlisted wallet)
@@ -31,6 +32,7 @@ Wallet auth headers:
 - `x-auth-address`
 - `x-auth-timestamp`
 - `x-auth-signature`
+- `x-auth-session` (preferred for subsequent requests after `/auth/session`)
 
 ### Internal (Bearer `INTERNAL_API_TOKEN`)
 
@@ -62,5 +64,6 @@ Runs on `http://127.0.0.1:3000` by default.
 - `SUMSUB_WEBHOOK_SECRET` is required in production (`NODE_ENV=production`).
 - Configure `CORS_ALLOWED_ORIGINS` with your frontend origin(s) for browser access.
 - Configure `ADMIN_ALLOWLIST`, `MERCHANT_ALLOWLIST`, and `COMPLIANCE_ALLOWLIST` for server-side role checks.
+- Optional: set `WALLET_SESSION_SECRET` (otherwise `INTERNAL_API_TOKEN` is used) and tune `WALLET_SESSION_TTL_SECONDS` (default 8h).
 - Tune per-IP request throttling with `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_KYC_START_MAX`, and `RATE_LIMIT_COMPLIANCE_CREATE_MAX`.
 - Compliance queue controls: `COMPLIANCE_LOCK_SECONDS`, `COMPLIANCE_RETRY_BASE_DELAY_SECONDS`, `COMPLIANCE_MAX_ATTEMPTS`.

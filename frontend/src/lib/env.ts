@@ -14,7 +14,21 @@ const envSchema = z.object({
   NEXT_PUBLIC_COMPLIANCE_ALLOWLIST: z.string().default(''),
 })
 
-const parsed = envSchema.safeParse(process.env)
+const rawEnv = {
+  NEXT_PUBLIC_BACKEND_BASE_URL: process.env.NEXT_PUBLIC_BACKEND_BASE_URL,
+  NEXT_PUBLIC_CHAIN_ID: process.env.NEXT_PUBLIC_CHAIN_ID,
+  NEXT_PUBLIC_SEPOLIA_RPC_URL: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL,
+  NEXT_PUBLIC_THIRDWEB_CLIENT_ID: process.env.NEXT_PUBLIC_THIRDWEB_CLIENT_ID,
+  NEXT_PUBLIC_FACTORY_ADDRESS: process.env.NEXT_PUBLIC_FACTORY_ADDRESS,
+  NEXT_PUBLIC_SETTLEMENT_VAULT_ADDRESS: process.env.NEXT_PUBLIC_SETTLEMENT_VAULT_ADDRESS,
+  NEXT_PUBLIC_REVENUE_REGISTRY_ADDRESS: process.env.NEXT_PUBLIC_REVENUE_REGISTRY_ADDRESS,
+  NEXT_PUBLIC_ORACLE_COORDINATOR_ADDRESS: process.env.NEXT_PUBLIC_ORACLE_COORDINATOR_ADDRESS,
+  NEXT_PUBLIC_ADMIN_ALLOWLIST: process.env.NEXT_PUBLIC_ADMIN_ALLOWLIST,
+  NEXT_PUBLIC_MERCHANT_ALLOWLIST: process.env.NEXT_PUBLIC_MERCHANT_ALLOWLIST,
+  NEXT_PUBLIC_COMPLIANCE_ALLOWLIST: process.env.NEXT_PUBLIC_COMPLIANCE_ALLOWLIST,
+}
+
+const parsed = envSchema.safeParse(rawEnv)
 
 if (!parsed.success) {
   const details = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')
@@ -27,8 +41,17 @@ const parseList = (raw: string): string[] =>
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean)
 
+const normalizedBackendBaseUrl = parsed.data.NEXT_PUBLIC_BACKEND_BASE_URL.trim().replace(/\/$/, '')
+
+if (process.env.NODE_ENV === 'production' && /(^https?:\/\/)(127\.0\.0\.1|localhost)(:\d+)?$/i.test(normalizedBackendBaseUrl)) {
+  throw new Error(
+    `Invalid frontend environment: NEXT_PUBLIC_BACKEND_BASE_URL must not point to localhost in production (${normalizedBackendBaseUrl})`,
+  )
+}
+
 export const env = {
   ...parsed.data,
+  NEXT_PUBLIC_BACKEND_BASE_URL: normalizedBackendBaseUrl,
   adminAllowlist: parseList(parsed.data.NEXT_PUBLIC_ADMIN_ALLOWLIST),
   merchantAllowlist: parseList(parsed.data.NEXT_PUBLIC_MERCHANT_ALLOWLIST),
   complianceAllowlist: parseList(parsed.data.NEXT_PUBLIC_COMPLIANCE_ALLOWLIST),

@@ -1,5 +1,5 @@
 import { env } from '@/lib/env'
-import { clearWalletAuthSession, getWalletAuthHeaders, type WalletAuthAccount } from '@/lib/api/wallet-auth'
+import { clearWalletAuthSession, getWalletApiAuthHeaders, type WalletAuthAccount } from '@/lib/api/wallet-auth'
 import {
   backendHealthSchema,
   batchesResponseSchema,
@@ -33,7 +33,7 @@ const fetchJson = async <T>(
       Accept: 'application/json',
     }
     if (options.requiresWalletAuth) {
-      Object.assign(headers, await getWalletAuthHeaders(options.account))
+      Object.assign(headers, await getWalletApiAuthHeaders(options.account, env.NEXT_PUBLIC_BACKEND_BASE_URL))
     }
     return headers
   }
@@ -72,7 +72,7 @@ const postJson = async <T>(
       'Content-Type': 'application/json',
     }
     if (options.requiresWalletAuth) {
-      Object.assign(headers, await getWalletAuthHeaders(options.account))
+      Object.assign(headers, await getWalletApiAuthHeaders(options.account, env.NEXT_PUBLIC_BACKEND_BASE_URL))
     }
     return headers
   }
