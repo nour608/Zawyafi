@@ -599,14 +599,17 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     return getHealthPayload()
   })
 
-  app.get('/wallet/capabilities', async (request) => {
+  const getWalletCapabilities = async (request: FastifyRequest) => {
     const authenticated = await assertWalletRequestAuth(request, 'authenticated')
 
     return {
       address: authenticated.address,
       capabilities: authenticated.capabilities,
     }
-  })
+  }
+
+  app.get('/wallet/capabilities', getWalletCapabilities)
+  app.get('/auth/capabilities', getWalletCapabilities)
 
   app.post('/kyc/start', async (request, reply) => {
     const authenticated = await assertWalletRequestAuth(request, 'authenticated')

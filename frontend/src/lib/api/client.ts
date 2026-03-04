@@ -1,5 +1,5 @@
 import { env } from '@/lib/env'
-import { getWalletAuthHeaders, type WalletAuthAccount } from '@/lib/api/wallet-auth'
+import { clearWalletAuthSession, getWalletAuthHeaders, type WalletAuthAccount } from '@/lib/api/wallet-auth'
 import {
   backendHealthSchema,
   batchesResponseSchema,
@@ -28,18 +28,28 @@ const fetchJson = async <T>(
   parser: { parse: (value: unknown) => T },
   options: RequestOptions = {},
 ): Promise<T> => {
-  const headers: HeadersInit = {
-    Accept: 'application/json',
+  const buildHeaders = async (): Promise<HeadersInit> => {
+    const headers: HeadersInit = {
+      Accept: 'application/json',
+    }
+    if (options.requiresWalletAuth) {
+      Object.assign(headers, await getWalletAuthHeaders(options.account))
+    }
+    return headers
   }
 
-  if (options.requiresWalletAuth) {
-    Object.assign(headers, await getWalletAuthHeaders(options.account))
-  }
-
-  const response = await fetch(`${env.NEXT_PUBLIC_BACKEND_BASE_URL}${input}`, {
+  let response = await fetch(`${env.NEXT_PUBLIC_BACKEND_BASE_URL}${input}`, {
     cache: 'no-store',
-    headers,
+    headers: await buildHeaders(),
   })
+
+  if (!response.ok && options.requiresWalletAuth && response.status === 401) {
+    clearWalletAuthSession()
+    response = await fetch(`${env.NEXT_PUBLIC_BACKEND_BASE_URL}${input}`, {
+      cache: 'no-store',
+      headers: await buildHeaders(),
+    })
+  }
 
   if (!response.ok) {
     const body = await response.text()
@@ -56,21 +66,33 @@ const postJson = async <T>(
   parser: { parse: (value: unknown) => T },
   options: RequestOptions = {},
 ): Promise<T> => {
-  const headers: HeadersInit = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
+  const buildHeaders = async (): Promise<HeadersInit> => {
+    const headers: HeadersInit = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }
+    if (options.requiresWalletAuth) {
+      Object.assign(headers, await getWalletAuthHeaders(options.account))
+    }
+    return headers
   }
 
-  if (options.requiresWalletAuth) {
-    Object.assign(headers, await getWalletAuthHeaders(options.account))
-  }
-
-  const response = await fetch(`${env.NEXT_PUBLIC_BACKEND_BASE_URL}${input}`, {
+  let response = await fetch(`${env.NEXT_PUBLIC_BACKEND_BASE_URL}${input}`, {
     method: 'POST',
     cache: 'no-store',
-    headers,
+    headers: await buildHeaders(),
     body: JSON.stringify(body),
   })
+
+  if (!response.ok && options.requiresWalletAuth && response.status === 401) {
+    clearWalletAuthSession()
+    response = await fetch(`${env.NEXT_PUBLIC_BACKEND_BASE_URL}${input}`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: await buildHeaders(),
+      body: JSON.stringify(body),
+    })
+  }
 
   if (!response.ok) {
     const payload = await response.text()
@@ -83,7 +105,7 @@ const postJson = async <T>(
 
 export const createApiClient = (account?: WalletAuthAccount) => ({
   getWalletCapabilities: () =>
-    fetchJson('/wallet/capabilities', walletCapabilitiesResponseSchema, { account, requiresWalletAuth: true }),
+    fetchJson('/auth/capabilities', walletCapabilitiesResponseSchema, { account, requiresWalletAuth: true }),
   getHealth: () => fetchJson('/health', backendHealthSchema),
   getOverview: (date: string) =>
     fetchJson(`/frontend/overview?date=${encodeURIComponent(date)}`, overviewSchema, { account, requiresWalletAuth: true }),

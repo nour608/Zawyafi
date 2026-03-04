@@ -329,7 +329,7 @@ describe('API integration', () => {
 
     const complianceResponse = await app.inject({
       method: 'GET',
-      url: '/wallet/capabilities',
+      url: '/auth/capabilities',
       headers: complianceHeaders,
     })
     expect(complianceResponse.statusCode).toBe(200)

@@ -10,7 +10,9 @@ interface WalletAuthSession {
   expiresAtMs: number;
 }
 
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+// Backend accepts signed timestamps within 5 minutes.
+// Keep client-side signature cache below that window.
+const SESSION_TTL_MS = 4 * 60 * 1000;
 let cachedSession: WalletAuthSession | null = null;
 
 export const buildWalletAuthMessage = (
