@@ -3,26 +3,76 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useActiveAccount } from 'thirdweb/react'
-import { Store, PieChart, Wallet, BarChart2 } from 'lucide-react'
+import { BarChart2, PieChart, Settings, ShieldCheck, Store, Wallet } from 'lucide-react'
 import { ZawyafiLogo } from '@/components/branding/zawyafi-logo'
+import { useCapabilities } from '@/hooks/use-capabilities'
 import { cn } from '@/lib/utils'
 import { formatShortHash } from '@/lib/utils/format'
+import type { RoleCapability } from '@/lib/types/frontend'
+
+type SidebarPortal = 'investor' | 'merchant' | 'compliance' | 'admin'
+
+const resolvePortal = (pathname: string, capabilities: RoleCapability): SidebarPortal => {
+  if (pathname.startsWith('/compliance/kyc')) {
+    return 'investor'
+  }
+
+  // Keep admin navigation consistent across operations routes.
+  if (capabilities.canUseAdmin && (pathname.startsWith('/admin') || pathname.startsWith('/compliance') || pathname.startsWith('/merchant'))) {
+    return 'admin'
+  }
+
+  if (pathname.startsWith('/admin')) {
+    return 'admin'
+  }
+
+  if (pathname.startsWith('/merchant')) {
+    return 'merchant'
+  }
+
+  if (pathname.startsWith('/compliance') && !pathname.startsWith('/compliance/kyc')) {
+    return 'compliance'
+  }
+
+  return 'investor'
+}
 
 export function Sidebar() {
-  const pathname = usePathname()
-  const account = useActiveAccount()
-  const address = account?.address
-  const isConnected = Boolean(address)
+  const pathname = usePathname() || '/'
+  const { address, capabilities, isConnected } = useCapabilities()
+  const portal = resolvePortal(pathname, capabilities)
 
-  const links = [
-    { name: 'Marketplace', href: '/investor/marketplace', icon: Store, requiresConnection: false },
-    { name: 'Portfolio', href: '/investor/portfolio', icon: PieChart, requiresConnection: true },
-    { name: 'Wallet', href: '/investor/wallet', icon: Wallet, requiresConnection: true },
-    { name: 'Analytics', href: '/investor/analytics', icon: BarChart2, requiresConnection: false },
-  ] as const
+  const linksByPortal = {
+    investor: [
+      { name: 'Marketplace', href: '/investor/marketplace', icon: Store, requiresConnection: false },
+      { name: 'Portfolio', href: '/investor/portfolio', icon: PieChart, requiresConnection: true },
+      { name: 'Wallet', href: '/investor/wallet', icon: Wallet, requiresConnection: true },
+      { name: 'Analytics', href: '/investor/analytics', icon: BarChart2, requiresConnection: false },
+    ],
+    merchant: [
+      { name: 'Operations', href: '/merchant', icon: Store, requiresConnection: false },
+      { name: 'Marketplace', href: '/investor/marketplace', icon: PieChart, requiresConnection: false },
+      { name: 'Wallet', href: '/investor/wallet', icon: Wallet, requiresConnection: true },
+    ],
+    compliance: [
+      { name: 'Compliance Ops', href: '/compliance', icon: ShieldCheck, requiresConnection: false },
+      { name: 'Wallet', href: '/investor/wallet', icon: Wallet, requiresConnection: true },
+    ],
+    admin: [
+      { name: 'Admin Controls', href: '/admin', icon: Settings, requiresConnection: false },
+      { name: 'Compliance Ops', href: '/compliance', icon: ShieldCheck, requiresConnection: false },
+      { name: 'Merchant Ops', href: '/merchant', icon: Store, requiresConnection: false },
+    ],
+  } as const
 
-  const visibleLinks = links.filter((link) => !link.requiresConnection || isConnected)
+  const roleLabelByPortal: Record<SidebarPortal, string> = {
+    investor: 'Connected Investor',
+    merchant: 'Connected Merchant',
+    compliance: 'Connected Compliance',
+    admin: 'Connected Admin',
+  }
+
+  const visibleLinks = linksByPortal[portal].filter((link) => !link.requiresConnection || isConnected)
 
   return (
     <aside className="hidden h-full w-72 shrink-0 flex-col border-r border-line bg-panel/80 backdrop-blur lg:flex">
@@ -63,7 +113,7 @@ export function Sidebar() {
             </div>
             <div className="flex flex-col overflow-hidden">
               <p className="truncate text-sm font-bold text-text">{formatShortHash(address)}</p>
-              <p className="truncate text-xs text-textMuted">Connected Investor</p>
+              <p className="truncate text-xs text-textMuted">{roleLabelByPortal[portal]}</p>
             </div>
           </div>
         </div>

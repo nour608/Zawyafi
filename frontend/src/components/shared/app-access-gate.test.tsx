@@ -14,11 +14,13 @@ const state: {
   pathname: string
   connectionStatus: 'unknown' | 'connecting' | 'connected' | 'disconnected'
   isConnected: boolean
+  isCapabilitiesLoading: boolean
   capabilities: RoleCapability
 } = {
   pathname: '/investor/marketplace',
   connectionStatus: 'disconnected',
   isConnected: false,
+  isCapabilitiesLoading: false,
   capabilities: defaultCapabilities,
 }
 
@@ -34,6 +36,7 @@ vi.mock('@/hooks/use-capabilities', () => ({
   useCapabilities: () => ({
     address: state.isConnected ? '0x1234567890abcdef1234567890abcdef12345678' : undefined,
     isConnected: state.isConnected,
+    isCapabilitiesLoading: state.isCapabilitiesLoading,
     capabilities: state.capabilities,
   }),
 }))
@@ -51,6 +54,7 @@ describe('AppAccessGate', () => {
     state.pathname = '/investor/marketplace'
     state.connectionStatus = 'disconnected'
     state.isConnected = false
+    state.isCapabilitiesLoading = false
     state.capabilities = { ...defaultCapabilities }
   })
 
@@ -122,6 +126,22 @@ describe('AppAccessGate', () => {
 
     expect(screen.getByText('Authentication required')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connect Wallet' })).toBeInTheDocument()
+    expect(screen.queryByText('Protected Content')).not.toBeInTheDocument()
+  })
+
+  it('shows loading state while role capabilities are being resolved', () => {
+    state.pathname = '/compliance'
+    state.connectionStatus = 'connected'
+    state.isConnected = true
+    state.isCapabilitiesLoading = true
+
+    render(
+      <AppAccessGate>
+        <div>Protected Content</div>
+      </AppAccessGate>,
+    )
+
+    expect(screen.getByText('Checking access')).toBeInTheDocument()
     expect(screen.queryByText('Protected Content')).not.toBeInTheDocument()
   })
 })

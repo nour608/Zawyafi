@@ -49,6 +49,9 @@ export const openDatabase = (inputPath: string): DatabaseSync => {
     CREATE INDEX IF NOT EXISTS idx_kyc_requests_applicant_id
       ON kyc_requests(sumsub_applicant_id);
 
+    CREATE INDEX IF NOT EXISTS idx_kyc_requests_wallet_updated
+      ON kyc_requests(wallet, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS kyc_webhook_events (
       event_id TEXT PRIMARY KEY,
       applicant_id TEXT NOT NULL,
@@ -133,6 +136,9 @@ export const ensurePostgresSchema = async (pool: Pool): Promise<void> => {
 
     CREATE INDEX IF NOT EXISTS idx_kyc_requests_applicant_id
       ON kyc_requests(sumsub_applicant_id);
+
+    CREATE INDEX IF NOT EXISTS idx_kyc_requests_wallet_updated
+      ON kyc_requests(wallet, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS kyc_webhook_events (
       event_id TEXT PRIMARY KEY,

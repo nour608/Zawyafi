@@ -29,6 +29,50 @@ const mapRequestRow = (row: Record<string, unknown>): ComplianceReportRequestRec
 export class PgComplianceStore {
   constructor(private readonly pool: Pool) {}
 
+  async listRequests(input: {
+    status?: ComplianceReportStatus
+    merchantIdHash?: string
+    offset: number
+    limit: number
+  }): Promise<{ records: ComplianceReportRequestRecord[]; nextCursor: string | null }> {
+    const whereClauses: string[] = []
+    const values: Array<string | number> = []
+
+    if (input.status) {
+      values.push(input.status)
+      whereClauses.push(`status = $${values.length}`)
+    }
+
+    if (input.merchantIdHash) {
+      values.push(input.merchantIdHash.toLowerCase())
+      whereClauses.push(`merchant_id_hash = $${values.length}`)
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+    const pageSize = input.limit + 1
+    values.push(pageSize, input.offset)
+    const limitPlaceholder = `$${values.length - 1}`
+    const offsetPlaceholder = `$${values.length}`
+
+    const result = await this.pool.query<Record<string, unknown>>(
+      `SELECT *
+       FROM compliance_report_requests
+       ${whereSql}
+       ORDER BY updated_at DESC, created_at DESC, request_id DESC
+       LIMIT ${limitPlaceholder}
+       OFFSET ${offsetPlaceholder}`,
+      values,
+    )
+
+    const hasMore = result.rows.length > input.limit
+    const records = result.rows.slice(0, input.limit).map((row: Record<string, unknown>) => mapRequestRow(row))
+
+    return {
+      records,
+      nextCursor: hasMore ? String(input.offset + input.limit) : null,
+    }
+  }
+
   async createRequest(input: { merchantIdHash: string; startDate: string; endDate: string }, now: Date): Promise<ComplianceReportRequestRecord> {
     const requestId = randomUUID()
     const timestamp = toIso(now)

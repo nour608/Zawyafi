@@ -167,4 +167,87 @@ describe('KycStore', () => {
 
     expect(afterLateWebhook?.status).toBe('ONCHAIN_APPROVED')
   })
+
+  it('lists requests with status, wallet, and cursor filters', () => {
+    const db = openDatabase(':memory:')
+    const store = new KycStore(db)
+
+    const walletOne = '0xA2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7'
+    const walletTwo = '0xB2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7'
+
+    const first = store.createRequest({ wallet: walletOne, chainId: 11155111, nonce: 'n-1' }, new Date(baseNow.getTime() + 1_000))
+    const second = store.createRequest({ wallet: walletTwo, chainId: 11155111, nonce: 'n-2' }, new Date(baseNow.getTime() + 2_000))
+    const third = store.createRequest({ wallet: walletOne, chainId: 11155111, nonce: 'n-3' }, new Date(baseNow.getTime() + 3_000))
+
+    db.prepare(`UPDATE kyc_requests SET status = ?, updated_at = ? WHERE request_id = ?`).run(
+      'ONCHAIN_APPROVED',
+      new Date(baseNow.getTime() + 10_000).toISOString(),
+      first.requestId,
+    )
+    db.prepare(`UPDATE kyc_requests SET status = ?, updated_at = ? WHERE request_id = ?`).run(
+      'FAILED_TERMINAL',
+      new Date(baseNow.getTime() + 20_000).toISOString(),
+      second.requestId,
+    )
+    db.prepare(`UPDATE kyc_requests SET status = ?, updated_at = ? WHERE request_id = ?`).run(
+      'ONCHAIN_APPROVED',
+      new Date(baseNow.getTime() + 30_000).toISOString(),
+      third.requestId,
+    )
+
+    const firstPage = store.listRequests({ status: 'ONCHAIN_APPROVED', offset: 0, limit: 1 })
+    expect(firstPage.records).toHaveLength(1)
+    expect(firstPage.records[0]?.requestId).toBe(third.requestId)
+    expect(firstPage.nextCursor).toBe('1')
+
+    const secondPage = store.listRequests({ status: 'ONCHAIN_APPROVED', offset: Number(firstPage.nextCursor), limit: 1 })
+    expect(secondPage.records).toHaveLength(1)
+    expect(secondPage.records[0]?.requestId).toBe(first.requestId)
+    expect(secondPage.nextCursor).toBeNull()
+
+    const walletFiltered = store.listRequests({
+      wallet: walletTwo.toLowerCase(),
+      offset: 0,
+      limit: 10,
+    })
+    expect(walletFiltered.records).toHaveLength(1)
+    expect(walletFiltered.records[0]?.requestId).toBe(second.requestId)
+  })
+
+  it('lists latest wallet states with optional status filtering', () => {
+    const db = openDatabase(':memory:')
+    const store = new KycStore(db)
+
+    const walletOne = '0xA2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7'
+    const walletTwo = '0xB2Cd38C20Aa36a1D7d1569289D9B61E9b01a2cd7'
+
+    const oldWalletOne = store.createRequest({ wallet: walletOne, chainId: 11155111, nonce: 'n-old' }, new Date(baseNow.getTime() + 1_000))
+    const latestWalletOne = store.createRequest({ wallet: walletOne, chainId: 11155111, nonce: 'n-latest' }, new Date(baseNow.getTime() + 2_000))
+    const walletTwoRecord = store.createRequest({ wallet: walletTwo, chainId: 11155111, nonce: 'n-two' }, new Date(baseNow.getTime() + 3_000))
+
+    db.prepare(`UPDATE kyc_requests SET status = ?, updated_at = ? WHERE request_id = ?`).run(
+      'FAILED_TERMINAL',
+      new Date(baseNow.getTime() + 10_000).toISOString(),
+      oldWalletOne.requestId,
+    )
+    db.prepare(`UPDATE kyc_requests SET status = ?, updated_at = ? WHERE request_id = ?`).run(
+      'ONCHAIN_APPROVED',
+      new Date(baseNow.getTime() + 20_000).toISOString(),
+      latestWalletOne.requestId,
+    )
+    db.prepare(`UPDATE kyc_requests SET status = ?, updated_at = ? WHERE request_id = ?`).run(
+      'FAILED_TERMINAL',
+      new Date(baseNow.getTime() + 30_000).toISOString(),
+      walletTwoRecord.requestId,
+    )
+
+    const latest = store.listLatestWalletStates({ offset: 0, limit: 10 })
+    expect(latest.records).toHaveLength(2)
+    expect(latest.records[0]?.requestId).toBe(walletTwoRecord.requestId)
+    expect(latest.records[1]?.requestId).toBe(latestWalletOne.requestId)
+
+    const approvedOnly = store.listLatestWalletStates({ status: 'ONCHAIN_APPROVED', offset: 0, limit: 10 })
+    expect(approvedOnly.records).toHaveLength(1)
+    expect(approvedOnly.records[0]?.requestId).toBe(latestWalletOne.requestId)
+  })
 })

@@ -6,11 +6,12 @@ import { useMutation } from '@tanstack/react-query'
 import { useActiveAccount } from 'thirdweb/react'
 import { createApiClient } from '@/lib/api/client'
 import type { WalletAuthAccount } from '@/lib/api/wallet-auth'
+import type { ComplianceReportStatus, KycStatus } from '@/lib/types/frontend'
 
-const useApiClient = () => {
+const useWalletAuthAccount = (): WalletAuthAccount | undefined => {
   const account = useActiveAccount()
 
-  const authAccount = useMemo<WalletAuthAccount | undefined>(() => {
+  return useMemo<WalletAuthAccount | undefined>(() => {
     if (!account?.address || typeof account.signMessage !== 'function') {
       return undefined
     }
@@ -20,8 +21,23 @@ const useApiClient = () => {
       signMessage: account.signMessage as WalletAuthAccount['signMessage'],
     }
   }, [account?.address, account?.signMessage])
+}
+
+const useApiClient = () => {
+  const authAccount = useWalletAuthAccount()
 
   return useMemo(() => createApiClient(authAccount), [authAccount])
+}
+
+export const useWalletCapabilities = (enabled = true) => {
+  const authAccount = useWalletAuthAccount()
+  const apiClient = useMemo(() => createApiClient(authAccount), [authAccount])
+  return useQuery({
+    queryKey: ['walletCapabilities', authAccount?.address],
+    queryFn: () => apiClient.getWalletCapabilities(),
+    enabled: enabled && Boolean(authAccount),
+    staleTime: 60_000,
+  })
 }
 
 export const useBackendHealth = () => {
@@ -104,5 +120,43 @@ export const useComplianceReport = (requestId?: string) => {
       }
       return false
     },
+  })
+}
+
+export const useComplianceKycRequests = (params?: {
+  status?: KycStatus
+  wallet?: string
+  cursor?: string
+  limit?: number
+}) => {
+  const apiClient = useApiClient()
+  return useQuery({
+    queryKey: ['complianceKycRequests', params],
+    queryFn: () => apiClient.getComplianceKycRequests(params),
+  })
+}
+
+export const useComplianceReports = (params?: {
+  status?: ComplianceReportStatus
+  merchantIdHash?: string
+  cursor?: string
+  limit?: number
+}) => {
+  const apiClient = useApiClient()
+  return useQuery({
+    queryKey: ['complianceReports', params],
+    queryFn: () => apiClient.getComplianceReports(params),
+  })
+}
+
+export const useComplianceInvestors = (params?: {
+  status?: KycStatus
+  cursor?: string
+  limit?: number
+}) => {
+  const apiClient = useApiClient()
+  return useQuery({
+    queryKey: ['complianceInvestors', params],
+    queryFn: () => apiClient.getComplianceInvestors(params),
   })
 }

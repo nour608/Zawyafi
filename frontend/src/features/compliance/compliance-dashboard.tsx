@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DataState } from '@/components/ui/data-state'
 import { Input } from '@/components/ui/input'
+import { ComplianceOperationsPanel } from '@/features/compliance/compliance-operations-panel'
 import { useComplianceReport, useCreateComplianceReport } from '@/lib/api/hooks'
 import type { ComplianceReportPeriod } from '@/lib/types/frontend'
 import { formatShortHash, formatUnits, formatUsdMinor, reasonLabel, statusTone, toIsoDate } from '@/lib/utils/format'
@@ -120,6 +121,8 @@ export const ComplianceDashboard = () => {
         title="Compliance and Risk"
         subtitle="Review attested period reports, anomaly reasons, and export regulator-ready snapshots for audit flows."
       />
+
+      <ComplianceOperationsPanel />
 
       <Card className="sticky top-0 z-10 bg-panel/95 backdrop-blur">
         <div className="grid gap-3 md:grid-cols-5">

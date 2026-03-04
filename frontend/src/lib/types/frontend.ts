@@ -103,6 +103,19 @@ export interface TxView {
 }
 
 export type ComplianceReportStatus = 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED'
+export type KycStatus =
+  | 'PENDING_CRE_BIND'
+  | 'PENDING_USER_SUBMISSION'
+  | 'IN_REVIEW'
+  | 'APPROVED_READY'
+  | 'APPROVED_ONCHAIN_PENDING'
+  | 'ONCHAIN_APPROVED'
+  | 'REJECTED'
+  | 'REVIEW_REQUIRED'
+  | 'FAILED_RETRYABLE'
+  | 'FAILED_TERMINAL'
+
+export type ReviewAnswer = 'GREEN' | 'RED' | 'YELLOW' | 'UNKNOWN'
 
 export interface ComplianceReportPeriod {
   periodId: string
@@ -174,10 +187,72 @@ export interface CreateComplianceReportResponse {
   pollAfterMs: number
 }
 
+export interface ComplianceKycRequestView {
+  requestId: string
+  wallet: string
+  chainId: number
+  status: KycStatus
+  sumsubReviewAnswer: ReviewAnswer | null
+  attemptCount: number
+  nextRetryAt: string | null
+  processingLockUntil: string | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  onchainTxHash: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ComplianceKycRequestsResponse {
+  records: ComplianceKycRequestView[]
+  nextCursor: string | null
+}
+
+export interface ComplianceReportRequestSummaryView {
+  requestId: string
+  merchantIdHash: string
+  startDate: string
+  endDate: string
+  status: ComplianceReportStatus
+  attemptCount: number
+  nextRetryAt: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ComplianceReportRequestListResponse {
+  records: ComplianceReportRequestSummaryView[]
+  nextCursor: string | null
+}
+
+export interface ComplianceInvestorWalletView {
+  wallet: string
+  latestKycStatus: KycStatus
+  latestKycUpdatedAt: string
+  latestRequestId: string
+  hasInvested: boolean
+  investedBatchCount: number
+  totalUnitsOwned: string
+  totalCostBasisMinor: string
+  portfolioStatus: 'ok' | 'unavailable'
+}
+
+export interface ComplianceInvestorWalletsResponse {
+  records: ComplianceInvestorWalletView[]
+  nextCursor: string | null
+}
+
 export type RoleCapability = {
   canUseMerchant: boolean
   canUseCompliance: boolean
   canUseAdmin: boolean
+}
+
+export interface WalletCapabilitiesResponse {
+  address: string
+  capabilities: RoleCapability
 }
 
 export type TxLifecycleState = 'idle' | 'signing' | 'pending' | 'confirmed' | 'failed'

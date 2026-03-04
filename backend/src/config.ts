@@ -79,13 +79,7 @@ const configSchema = z.object({
 
 let didLoadDotEnv = false
 
-const loadDotEnvFromCwd = (): void => {
-  if (didLoadDotEnv) {
-    return
-  }
-  didLoadDotEnv = true
-
-  const envPath = path.resolve(process.cwd(), '.env')
+const loadDotEnvFile = (envPath: string): void => {
   if (!fs.existsSync(envPath)) {
     return
   }
@@ -112,6 +106,20 @@ const loadDotEnvFromCwd = (): void => {
     if (process.env[key] === undefined) {
       process.env[key] = value
     }
+  }
+}
+
+const loadDotEnvFromCwd = (): void => {
+  if (didLoadDotEnv) {
+    return
+  }
+  didLoadDotEnv = true
+
+  const candidates = [path.resolve(process.cwd(), '.env'), path.resolve(process.cwd(), 'backend/.env')]
+  const uniqueCandidates = Array.from(new Set(candidates))
+
+  for (const candidate of uniqueCandidates) {
+    loadDotEnvFile(candidate)
   }
 }
 

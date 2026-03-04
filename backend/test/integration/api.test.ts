@@ -310,6 +310,56 @@ describe('API integration', () => {
     await app.close()
   })
 
+  it('returns wallet capabilities from backend allowlists', async () => {
+    const timestampIso = '2026-03-01T12:00:00.000Z'
+    const app = buildApp({
+      config: testConfig(),
+      fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
+      now: () => new Date(timestampIso),
+    })
+
+    const complianceHeaders = await authHeaders({
+      account: complianceAccount,
+      timestampIso,
+    })
+    const investorHeaders = await authHeaders({
+      account: investorAccount,
+      timestampIso,
+    })
+
+    const complianceResponse = await app.inject({
+      method: 'GET',
+      url: '/wallet/capabilities',
+      headers: complianceHeaders,
+    })
+    expect(complianceResponse.statusCode).toBe(200)
+    expect(complianceResponse.json()).toMatchObject({
+      address: complianceAccount.address.toLowerCase(),
+      capabilities: {
+        canUseCompliance: true,
+        canUseMerchant: false,
+        canUseAdmin: false,
+      },
+    })
+
+    const investorResponse = await app.inject({
+      method: 'GET',
+      url: '/wallet/capabilities',
+      headers: investorHeaders,
+    })
+    expect(investorResponse.statusCode).toBe(200)
+    expect(investorResponse.json()).toMatchObject({
+      address: investorAccount.address.toLowerCase(),
+      capabilities: {
+        canUseCompliance: false,
+        canUseMerchant: false,
+        canUseAdmin: false,
+      },
+    })
+
+    await app.close()
+  })
+
   it('rejects webhook with invalid signature', async () => {
     const app = buildApp({
       config: testConfig(),
@@ -500,6 +550,265 @@ describe('API integration', () => {
     const reportPayload = reportResponse.json() as { status: string; report: { totals: { periodCount: number } } }
     expect(reportPayload.status).toBe('SUCCEEDED')
     expect(reportPayload.report.totals.periodCount).toBe(1)
+
+    await app.close()
+  })
+
+  it('lists compliance KYC requests, report queue, and investor wallet exposure', async () => {
+    const timestampIso = '2026-03-01T12:00:00.000Z'
+    const app = buildApp({
+      config: testConfig(),
+      fetchFn: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString()
+
+        if (url === 'https://sumsub.local/resources/accessTokens/sdk' && init?.method === 'POST') {
+          return new Response(JSON.stringify({ token: 'sdk-token-1' }), { status: 200 }) as unknown as Response
+        }
+        if (url.startsWith('https://sumsub.local/resources/applicants?levelName=') && init?.method === 'POST') {
+          return new Response(JSON.stringify({ id: 'sumsub-applicant-1' }), { status: 200 }) as unknown as Response
+        }
+        if (url.startsWith('https://square-proxy.local/frontend/portfolio?wallet=')) {
+          const parsed = new URL(url)
+          const wallet = parsed.searchParams.get('wallet')?.toLowerCase()
+          if (wallet === investorAccount.address.toLowerCase()) {
+            return new Response(
+              JSON.stringify({
+                positions: [
+                  {
+                    batchId: 1,
+                    unitToken: `0x${'99'.repeat(20)}`,
+                    symbol: 'CUP1',
+                    unitsOwned: '12',
+                    unitsClaimableNow: '2',
+                    costBasisMinor: '24000000',
+                  },
+                ],
+              }),
+              { status: 200 },
+            ) as unknown as Response
+          }
+
+          return new Response('{}', { status: 500 }) as unknown as Response
+        }
+        return new Response('{}', { status: 200 }) as unknown as Response
+      },
+      now: () => new Date(timestampIso),
+    })
+
+    const investorHeaders = await authHeaders({ account: investorAccount, timestampIso })
+    const merchantHeaders = await authHeaders({ account: merchantAccount, timestampIso })
+    const complianceHeaders = await authHeaders({ account: complianceAccount, timestampIso })
+
+    const startInvestor = await app.inject({
+      method: 'POST',
+      url: '/kyc/start',
+      headers: investorHeaders,
+      payload: { wallet: investorAccount.address, chainId: 11155111 },
+    })
+    expect(startInvestor.statusCode).toBe(201)
+
+    const startMerchant = await app.inject({
+      method: 'POST',
+      url: '/kyc/start',
+      headers: merchantHeaders,
+      payload: { wallet: merchantAccount.address, chainId: 11155111 },
+    })
+    expect(startMerchant.statusCode).toBe(201)
+
+    const kycListPage = await app.inject({
+      method: 'GET',
+      url: '/compliance/kyc/requests?limit=1',
+      headers: complianceHeaders,
+    })
+    expect(kycListPage.statusCode).toBe(200)
+    const kycListPagePayload = kycListPage.json() as { records: Array<{ requestId: string }>; nextCursor: string | null }
+    expect(kycListPagePayload.records).toHaveLength(1)
+    expect(kycListPagePayload.nextCursor).toBe('1')
+
+    const filteredKyc = await app.inject({
+      method: 'GET',
+      url: `/compliance/kyc/requests?status=PENDING_USER_SUBMISSION&wallet=${investorAccount.address}`,
+      headers: complianceHeaders,
+    })
+    expect(filteredKyc.statusCode).toBe(200)
+    const filteredKycPayload = filteredKyc.json() as { records: Array<{ wallet: string; status: string }> }
+    expect(filteredKycPayload.records).toHaveLength(1)
+    expect(filteredKycPayload.records[0]?.wallet).toBe(investorAccount.address.toLowerCase())
+    expect(filteredKycPayload.records[0]?.status).toBe('PENDING_USER_SUBMISSION')
+
+    const createOne = await app.inject({
+      method: 'POST',
+      url: '/compliance/reports',
+      headers: complianceHeaders,
+      payload: {
+        merchantIdHash: `0x${'11'.repeat(32)}`,
+        startDate: '2026-02-01',
+        endDate: '2026-02-28',
+      },
+    })
+    expect(createOne.statusCode).toBe(201)
+
+    const createTwo = await app.inject({
+      method: 'POST',
+      url: '/compliance/reports',
+      headers: complianceHeaders,
+      payload: {
+        merchantIdHash: `0x${'22'.repeat(32)}`,
+        startDate: '2026-02-01',
+        endDate: '2026-02-28',
+      },
+    })
+    expect(createTwo.statusCode).toBe(201)
+    const createdTwo = createTwo.json() as { requestId: string }
+
+    const readyResponse = await app.inject({
+      method: 'GET',
+      url: '/internal/compliance/ready',
+      headers: { authorization: 'Bearer internal-token' },
+    })
+    expect(readyResponse.statusCode).toBe(200)
+    const readyPayload = readyResponse.json() as { records: Array<{ requestId: string; merchantIdHash: string }> }
+    const target = readyPayload.records.find((record) => record.merchantIdHash === `0x${'22'.repeat(32)}`.toLowerCase())
+    expect(target?.requestId).toBe(createdTwo.requestId)
+
+    const resultResponse = await app.inject({
+      method: 'POST',
+      url: '/internal/compliance/report-result',
+      headers: { authorization: 'Bearer internal-token' },
+      payload: {
+        requestId: createdTwo.requestId,
+        outcome: 'SUCCESS',
+        report: {
+          generatedAt: '2026-02-28T12:01:00.000Z',
+          merchantIdHash: `0x${'22'.repeat(32)}`,
+          startDate: '2026-02-01',
+          endDate: '2026-02-28',
+          chainSelectorName: 'ethereum-testnet-sepolia',
+          revenueRegistryAddress: `0x${'22'.repeat(20)}`,
+          scanFromBlock: '1',
+          scanToBlock: '999',
+          reportHash: `0x${'33'.repeat(32)}`,
+          periodMerkleRoot: `0x${'44'.repeat(32)}`,
+          totals: {
+            periodCount: 1,
+            grossSalesMinor: '1000',
+            refundsMinor: '100',
+            netSalesMinor: '900',
+            unitsSold: '20',
+            refundUnits: '2',
+            netUnitsSold: '18',
+            verifiedCount: 1,
+            unverifiedCount: 0,
+          },
+          periods: [
+            {
+              periodId: `0x${'55'.repeat(32)}`,
+              merchantIdHash: `0x${'22'.repeat(32)}`,
+              productIdHash: `0x${'66'.repeat(32)}`,
+              periodStart: '2026-02-27T00:00:00.000Z',
+              periodEnd: '2026-02-27T23:59:59.000Z',
+              generatedAt: '2026-02-28T00:15:00.000Z',
+              grossSalesMinor: '1000',
+              refundsMinor: '100',
+              netSalesMinor: '900',
+              unitsSold: '20',
+              refundUnits: '2',
+              netUnitsSold: '18',
+              eventCount: 22,
+              status: 'VERIFIED',
+              riskScore: 10,
+              reasonCode: 'OK',
+              batchHash: `0x${'77'.repeat(32)}`,
+              txHash: `0x${'88'.repeat(32)}`,
+              blockNumber: '111',
+              logIndex: 3,
+            },
+          ],
+        },
+      },
+    })
+    expect(resultResponse.statusCode).toBe(200)
+
+    const reportQueue = await app.inject({
+      method: 'GET',
+      url: '/compliance/reports?status=SUCCEEDED',
+      headers: complianceHeaders,
+    })
+    expect(reportQueue.statusCode).toBe(200)
+    const reportQueuePayload = reportQueue.json() as { records: Array<{ requestId: string; status: string }> }
+    expect(reportQueuePayload.records).toHaveLength(1)
+    expect(reportQueuePayload.records[0]?.requestId).toBe(createdTwo.requestId)
+    expect(reportQueuePayload.records[0]?.status).toBe('SUCCEEDED')
+
+    const investors = await app.inject({
+      method: 'GET',
+      url: '/compliance/investors?status=PENDING_USER_SUBMISSION',
+      headers: complianceHeaders,
+    })
+    expect(investors.statusCode).toBe(200)
+    const investorsPayload = investors.json() as {
+      records: Array<{
+        wallet: string
+        hasInvested: boolean
+        investedBatchCount: number
+        totalUnitsOwned: string
+        totalCostBasisMinor: string
+        portfolioStatus: 'ok' | 'unavailable'
+      }>
+    }
+    expect(investorsPayload.records.length).toBeGreaterThanOrEqual(2)
+
+    const investorWallet = investorsPayload.records.find((record) => record.wallet === investorAccount.address.toLowerCase())
+    expect(investorWallet).toBeTruthy()
+    expect(investorWallet?.portfolioStatus).toBe('ok')
+    expect(investorWallet?.hasInvested).toBe(true)
+    expect(investorWallet?.investedBatchCount).toBe(1)
+    expect(investorWallet?.totalUnitsOwned).toBe('12')
+    expect(investorWallet?.totalCostBasisMinor).toBe('24000000')
+
+    const unavailableWallet = investorsPayload.records.find(
+      (record) => record.wallet !== investorAccount.address.toLowerCase(),
+    )
+    expect(unavailableWallet).toBeTruthy()
+    expect(unavailableWallet?.portfolioStatus).toBe('unavailable')
+    expect(unavailableWallet?.hasInvested).toBe(false)
+
+    await app.close()
+  })
+
+  it('rejects new compliance list endpoints for non-compliance wallets', async () => {
+    const timestampIso = '2026-03-01T12:00:00.000Z'
+    const app = buildApp({
+      config: testConfig(),
+      fetchFn: async () => new Response('{}', { status: 200 }) as unknown as Response,
+      now: () => new Date(timestampIso),
+    })
+
+    const investorHeaders = await authHeaders({
+      account: investorAccount,
+      timestampIso,
+    })
+
+    const kycList = await app.inject({
+      method: 'GET',
+      url: '/compliance/kyc/requests',
+      headers: investorHeaders,
+    })
+    expect(kycList.statusCode).toBe(403)
+
+    const reportList = await app.inject({
+      method: 'GET',
+      url: '/compliance/reports',
+      headers: investorHeaders,
+    })
+    expect(reportList.statusCode).toBe(403)
+
+    const investors = await app.inject({
+      method: 'GET',
+      url: '/compliance/investors',
+      headers: investorHeaders,
+    })
+    expect(investors.statusCode).toBe(403)
 
     await app.close()
   })

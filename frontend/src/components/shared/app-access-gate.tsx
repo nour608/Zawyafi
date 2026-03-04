@@ -57,7 +57,7 @@ const blockedMessageByRequirement: Record<AccessRequirement, string> = {
 export const AppAccessGate = ({ children }: AppAccessGateProps) => {
   const pathname = usePathname() || '/'
   const connectionStatus = useActiveWalletConnectionStatus()
-  const { isConnected, capabilities } = useCapabilities()
+  const { isConnected, capabilities, isCapabilitiesLoading } = useCapabilities()
 
   const requirement = useMemo(() => resolveAccessRequirement(pathname), [pathname])
 
@@ -85,6 +85,18 @@ export const AppAccessGate = ({ children }: AppAccessGateProps) => {
           <p className="mt-2 max-w-2xl text-sm text-textMuted">Connect your wallet to access this section of the app.</p>
         </div>
         <WalletActionButton labelDisconnected="Connect Wallet" variant="cc" />
+      </Card>
+    )
+  }
+
+  if (requirement !== 'authenticated' && isCapabilitiesLoading) {
+    return (
+      <Card className="space-y-4">
+        <div>
+          <h2 className="font-heading text-xl font-semibold text-text">Checking access</h2>
+          <p className="mt-2 max-w-2xl text-sm text-textMuted">We are validating your wallet role permissions.</p>
+        </div>
+        <WalletActionButton labelDisconnected="Connect Wallet" variant="secondary" />
       </Card>
     )
   }

@@ -52,6 +52,92 @@ const mapRow = (row: Record<string, unknown>): KycRequestRecord => ({
 export class PgKycStore {
   constructor(private readonly pool: Pool) {}
 
+  async listRequests(input: {
+    status?: KycStatus
+    wallet?: string
+    offset: number
+    limit: number
+  }): Promise<{ records: KycRequestRecord[]; nextCursor: string | null }> {
+    const whereClauses: string[] = []
+    const values: Array<string | number> = []
+
+    if (input.status) {
+      values.push(input.status)
+      whereClauses.push(`status = $${values.length}`)
+    }
+
+    if (input.wallet) {
+      values.push(input.wallet.toLowerCase())
+      whereClauses.push(`wallet = $${values.length}`)
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+    const pageSize = input.limit + 1
+    values.push(pageSize, input.offset)
+    const limitPlaceholder = `$${values.length - 1}`
+    const offsetPlaceholder = `$${values.length}`
+
+    const result = await this.pool.query<Record<string, unknown>>(
+      `SELECT *
+       FROM kyc_requests
+       ${whereSql}
+       ORDER BY updated_at DESC, created_at DESC, request_id DESC
+       LIMIT ${limitPlaceholder}
+       OFFSET ${offsetPlaceholder}`,
+      values,
+    )
+
+    const hasMore = result.rows.length > input.limit
+    const records = result.rows.slice(0, input.limit).map((row: Record<string, unknown>) => mapRow(row))
+
+    return {
+      records,
+      nextCursor: hasMore ? String(input.offset + input.limit) : null,
+    }
+  }
+
+  async listLatestWalletStates(input: {
+    status?: KycStatus
+    offset: number
+    limit: number
+  }): Promise<{ records: KycRequestRecord[]; nextCursor: string | null }> {
+    const whereClauses: string[] = []
+    const values: Array<string | number> = []
+
+    if (input.status) {
+      values.push(input.status)
+      whereClauses.push(`status = $${values.length}`)
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+    const pageSize = input.limit + 1
+    values.push(pageSize, input.offset)
+    const limitPlaceholder = `$${values.length - 1}`
+    const offsetPlaceholder = `$${values.length}`
+
+    const result = await this.pool.query<Record<string, unknown>>(
+      `SELECT *
+       FROM (
+         SELECT DISTINCT ON (wallet) *
+         FROM kyc_requests
+         ORDER BY wallet, updated_at DESC, created_at DESC, request_id DESC
+       ) latest
+       ${whereSql}
+       ORDER BY updated_at DESC, created_at DESC, request_id DESC
+       LIMIT ${limitPlaceholder}
+       OFFSET ${offsetPlaceholder}`,
+      values,
+    )
+
+    const hasMore = result.rows.length > input.limit
+    const records = result.rows.slice(0, input.limit).map((row: Record<string, unknown>) => mapRow(row))
+
+    return {
+      records,
+      nextCursor: hasMore ? String(input.offset + input.limit) : null,
+    }
+  }
+
   async createRequest(input: { wallet: string; chainId: number; nonce: string }, now: Date): Promise<KycRequestRecord> {
     const requestId = randomUUID()
     const timestamp = toIso(now)

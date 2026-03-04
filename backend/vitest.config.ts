@@ -1,6 +1,4 @@
-import { defineConfig } from 'vitest/config'
-
-export default defineConfig({
+export default {
   test: {
     include: ['test/**/*.test.ts'],
     environment: 'node',
@@ -9,4 +7,4 @@ export default defineConfig({
       reporter: ['text', 'lcov'],
     },
   },
-})
+}

@@ -18,7 +18,10 @@ Core backend service for:
 
 - `POST /kyc/start` (wallet must match payload wallet)
 - `GET /kyc/session/:requestId` (owner wallet only)
+- `GET /compliance/kyc/requests` (compliance/admin allowlisted wallet)
+- `GET /compliance/investors` (compliance/admin allowlisted wallet)
 - `POST /compliance/reports` (compliance/admin allowlisted wallet)
+- `GET /compliance/reports` (compliance/admin allowlisted wallet)
 - `GET /compliance/reports/:requestId` (compliance/admin allowlisted wallet)
 - `GET|POST /square/*` (merchant/admin allowlisted wallet)
 - `GET /frontend/*` (authenticated wallet)

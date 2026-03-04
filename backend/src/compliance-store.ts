@@ -28,6 +28,47 @@ const mapRequestRow = (row: Record<string, unknown>): ComplianceReportRequestRec
 export class ComplianceStore {
   constructor(private readonly db: DatabaseSync) {}
 
+  listRequests(input: {
+    status?: ComplianceReportStatus
+    merchantIdHash?: string
+    offset: number
+    limit: number
+  }): { records: ComplianceReportRequestRecord[]; nextCursor: string | null } {
+    const whereClauses: string[] = []
+    const values: Array<string | number> = []
+
+    if (input.status) {
+      whereClauses.push('status = ?')
+      values.push(input.status)
+    }
+
+    if (input.merchantIdHash) {
+      whereClauses.push('merchant_id_hash = ?')
+      values.push(input.merchantIdHash.toLowerCase())
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+    const pageSize = input.limit + 1
+
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM compliance_report_requests
+         ${whereSql}
+         ORDER BY updated_at DESC, created_at DESC, request_id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...values, pageSize, input.offset) as Array<Record<string, unknown>>
+
+    const hasMore = rows.length > input.limit
+    const records = rows.slice(0, input.limit).map(mapRequestRow)
+
+    return {
+      records,
+      nextCursor: hasMore ? String(input.offset + input.limit) : null,
+    }
+  }
+
   createRequest(input: { merchantIdHash: string; startDate: string; endDate: string }, now: Date): ComplianceReportRequestRecord {
     const requestId = randomUUID()
     const timestamp = toIso(now)

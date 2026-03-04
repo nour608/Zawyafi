@@ -51,6 +51,87 @@ const assertTransition = (from: KycStatus, to: KycStatus): void => {
 export class KycStore {
   constructor(private readonly db: DatabaseSync) {}
 
+  listRequests(input: {
+    status?: KycStatus
+    wallet?: string
+    offset: number
+    limit: number
+  }): { records: KycRequestRecord[]; nextCursor: string | null } {
+    const whereClauses: string[] = []
+    const values: Array<string | number> = []
+
+    if (input.status) {
+      whereClauses.push('status = ?')
+      values.push(input.status)
+    }
+
+    if (input.wallet) {
+      whereClauses.push('wallet = ?')
+      values.push(input.wallet.toLowerCase())
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+    const pageSize = input.limit + 1
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM kyc_requests
+         ${whereSql}
+         ORDER BY updated_at DESC, created_at DESC, request_id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...values, pageSize, input.offset) as Array<Record<string, unknown>>
+
+    const hasMore = rows.length > input.limit
+    const records = rows.slice(0, input.limit).map(mapRow)
+
+    return {
+      records,
+      nextCursor: hasMore ? String(input.offset + input.limit) : null,
+    }
+  }
+
+  listLatestWalletStates(input: {
+    status?: KycStatus
+    offset: number
+    limit: number
+  }): { records: KycRequestRecord[]; nextCursor: string | null } {
+    const whereClauses: string[] = ['rn = 1']
+    const values: Array<string | number> = []
+
+    if (input.status) {
+      whereClauses.push('status = ?')
+      values.push(input.status)
+    }
+
+    const pageSize = input.limit + 1
+    const whereSql = whereClauses.join(' AND ')
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM (
+           SELECT *,
+             ROW_NUMBER() OVER (
+               PARTITION BY wallet
+               ORDER BY updated_at DESC, created_at DESC, request_id DESC
+             ) as rn
+           FROM kyc_requests
+         ) ranked
+         WHERE ${whereSql}
+         ORDER BY updated_at DESC, created_at DESC, request_id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...values, pageSize, input.offset) as Array<Record<string, unknown>>
+
+    const hasMore = rows.length > input.limit
+    const records = rows.slice(0, input.limit).map(mapRow)
+
+    return {
+      records,
+      nextCursor: hasMore ? String(input.offset + input.limit) : null,
+    }
+  }
+
   createRequest(input: { wallet: string; chainId: number; nonce: string }, now: Date): KycRequestRecord {
     const requestId = randomUUID()
     const timestamp = toIso(now)

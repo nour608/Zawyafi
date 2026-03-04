@@ -3,6 +3,9 @@ import { getWalletAuthHeaders, type WalletAuthAccount } from '@/lib/api/wallet-a
 import {
   backendHealthSchema,
   batchesResponseSchema,
+  complianceInvestorWalletsResponseSchema,
+  complianceKycRequestsResponseSchema,
+  complianceReportRequestListResponseSchema,
   complianceReportStatusSchema,
   createComplianceReportResponseSchema,
   overviewSchema,
@@ -11,7 +14,9 @@ import {
   portfolioResponseSchema,
   refundsResponseSchema,
   txResponseSchema,
+  walletCapabilitiesResponseSchema,
 } from '@/lib/api/schemas'
+import type { ComplianceReportStatus, KycStatus } from '@/lib/types/frontend'
 
 interface RequestOptions {
   account?: WalletAuthAccount
@@ -77,6 +82,8 @@ const postJson = async <T>(
 }
 
 export const createApiClient = (account?: WalletAuthAccount) => ({
+  getWalletCapabilities: () =>
+    fetchJson('/wallet/capabilities', walletCapabilitiesResponseSchema, { account, requiresWalletAuth: true }),
   getHealth: () => fetchJson('/health', backendHealthSchema),
   getOverview: (date: string) =>
     fetchJson(`/frontend/overview?date=${encodeURIComponent(date)}`, overviewSchema, { account, requiresWalletAuth: true }),
@@ -117,6 +124,41 @@ export const createApiClient = (account?: WalletAuthAccount) => ({
       account,
       requiresWalletAuth: true,
     }),
+  getComplianceKycRequests: (params?: { status?: KycStatus; wallet?: string; cursor?: string; limit?: number }) => {
+    const search = new URLSearchParams()
+    if (params?.status) search.set('status', params.status)
+    if (params?.wallet) search.set('wallet', params.wallet)
+    if (params?.cursor) search.set('cursor', params.cursor)
+    if (params?.limit !== undefined) search.set('limit', String(params.limit))
+    const query = search.toString()
+    return fetchJson(`/compliance/kyc/requests${query ? `?${query}` : ''}`, complianceKycRequestsResponseSchema, {
+      account,
+      requiresWalletAuth: true,
+    })
+  },
+  getComplianceReports: (params?: { status?: ComplianceReportStatus; merchantIdHash?: string; cursor?: string; limit?: number }) => {
+    const search = new URLSearchParams()
+    if (params?.status) search.set('status', params.status)
+    if (params?.merchantIdHash) search.set('merchantIdHash', params.merchantIdHash)
+    if (params?.cursor) search.set('cursor', params.cursor)
+    if (params?.limit !== undefined) search.set('limit', String(params.limit))
+    const query = search.toString()
+    return fetchJson(`/compliance/reports${query ? `?${query}` : ''}`, complianceReportRequestListResponseSchema, {
+      account,
+      requiresWalletAuth: true,
+    })
+  },
+  getComplianceInvestors: (params?: { status?: KycStatus; cursor?: string; limit?: number }) => {
+    const search = new URLSearchParams()
+    if (params?.status) search.set('status', params.status)
+    if (params?.cursor) search.set('cursor', params.cursor)
+    if (params?.limit !== undefined) search.set('limit', String(params.limit))
+    const query = search.toString()
+    return fetchJson(`/compliance/investors${query ? `?${query}` : ''}`, complianceInvestorWalletsResponseSchema, {
+      account,
+      requiresWalletAuth: true,
+    })
+  },
 })
 
 export const apiClient = createApiClient()

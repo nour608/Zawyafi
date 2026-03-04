@@ -111,6 +111,21 @@ export const createComplianceReportResponseSchema = z.object({
   pollAfterMs: z.number().int().positive(),
 })
 
+const kycStatusSchema = z.enum([
+  'PENDING_CRE_BIND',
+  'PENDING_USER_SUBMISSION',
+  'IN_REVIEW',
+  'APPROVED_READY',
+  'APPROVED_ONCHAIN_PENDING',
+  'ONCHAIN_APPROVED',
+  'REJECTED',
+  'REVIEW_REQUIRED',
+  'FAILED_RETRYABLE',
+  'FAILED_TERMINAL',
+])
+
+const reviewAnswerSchema = z.enum(['GREEN', 'RED', 'YELLOW', 'UNKNOWN'])
+
 export const complianceReportPeriodSchema = z.object({
   periodId: hexString,
   merchantIdHash: hexString,
@@ -172,6 +187,72 @@ export const complianceReportStatusSchema = z.object({
       periods: z.array(complianceReportPeriodSchema),
     })
     .nullable(),
+})
+
+export const complianceKycRequestSchema = z.object({
+  requestId: z.string().uuid(),
+  wallet: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  chainId: z.number().int().positive(),
+  status: kycStatusSchema,
+  sumsubReviewAnswer: reviewAnswerSchema.nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  nextRetryAt: z.string().datetime().nullable(),
+  processingLockUntil: z.string().datetime().nullable(),
+  lastErrorCode: z.string().nullable(),
+  lastErrorMessage: z.string().nullable(),
+  onchainTxHash: hexString.nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export const complianceKycRequestsResponseSchema = z.object({
+  records: z.array(complianceKycRequestSchema),
+  nextCursor: z.string().nullable(),
+})
+
+export const complianceReportRequestSummarySchema = z.object({
+  requestId: z.string().uuid(),
+  merchantIdHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  status: z.enum(['QUEUED', 'PROCESSING', 'SUCCEEDED', 'FAILED']),
+  attemptCount: z.number().int().nonnegative(),
+  nextRetryAt: z.string().datetime().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
+export const complianceReportRequestListResponseSchema = z.object({
+  records: z.array(complianceReportRequestSummarySchema),
+  nextCursor: z.string().nullable(),
+})
+
+export const complianceInvestorWalletSchema = z.object({
+  wallet: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  latestKycStatus: kycStatusSchema,
+  latestKycUpdatedAt: z.string().datetime(),
+  latestRequestId: z.string().uuid(),
+  hasInvested: z.boolean(),
+  investedBatchCount: z.number().int().nonnegative(),
+  totalUnitsOwned: z.string(),
+  totalCostBasisMinor: z.string(),
+  portfolioStatus: z.enum(['ok', 'unavailable']),
+})
+
+export const complianceInvestorWalletsResponseSchema = z.object({
+  records: z.array(complianceInvestorWalletSchema),
+  nextCursor: z.string().nullable(),
+})
+
+export const walletCapabilitiesResponseSchema = z.object({
+  address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+  capabilities: z.object({
+    canUseMerchant: z.boolean(),
+    canUseCompliance: z.boolean(),
+    canUseAdmin: z.boolean(),
+  }),
 })
 
 export const backendHealthSchema = z.object({

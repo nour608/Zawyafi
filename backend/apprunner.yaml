@@ -20,12 +20,6 @@ run:
       value: "true"
     - name: CORS_ALLOWED_ORIGINS
       value: https://zawyafi.com,https://www.zawyafi.com
-    - name: ADMIN_ALLOWLIST
-      value: ""
-    - name: MERCHANT_ALLOWLIST
-      value: ""
-    - name: COMPLIANCE_ALLOWLIST
-      value: ""
   secrets:
     - name: DATABASE_URL
       value-from: /zawyafi/prod/database_url
@@ -39,3 +33,9 @@ run:
       value-from: /zawyafi/prod/sumsub_secret_key
     - name: KYC_HMAC_KEY
       value-from: /zawyafi/prod/kyc_hmac_key
+    - name: ADMIN_ALLOWLIST
+      value-from: /zawyafi/prod/admin_allowlist
+    - name: MERCHANT_ALLOWLIST
+      value-from: /zawyafi/prod/merchant_allowlist
+    - name: COMPLIANCE_ALLOWLIST
+      value-from: /zawyafi/prod/compliance_allowlist

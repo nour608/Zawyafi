@@ -18,7 +18,7 @@ import { KycStore } from './kyc-store'
 import { PgComplianceStore } from './pg-compliance-store'
 import { PgKycStore } from './pg-kyc-store'
 import { createSumsubIntake, parseSumsubWebhook, verifySumsubWebhook } from './sumsub'
-import type { OnchainOutcome } from './types'
+import { COMPLIANCE_REPORT_STATUSES, KYC_STATUSES, type OnchainOutcome } from './types'
 import {
   assertWalletScope,
   parseWalletAuthHeaders,
@@ -98,6 +98,31 @@ const limitSchema = z.object({
 
 const optionalLimitSchema = z.object({
   limit: z.coerce.number().int().positive().max(500).optional(),
+})
+
+const complianceCursorSchema = z.object({
+  cursor: z.coerce.number().int().nonnegative().optional(),
+  limit: z.coerce.number().int().positive().max(100).default(25),
+})
+
+const complianceKycRequestsQuerySchema = complianceCursorSchema.extend({
+  status: z.enum(KYC_STATUSES).optional(),
+  wallet: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+})
+
+const complianceReportsListQuerySchema = complianceCursorSchema.extend({
+  status: z.enum(COMPLIANCE_REPORT_STATUSES).optional(),
+  merchantIdHash: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/)
+    .optional(),
+})
+
+const complianceInvestorsQuerySchema = complianceCursorSchema.extend({
+  status: z.enum(KYC_STATUSES).optional(),
 })
 
 const sessionParamsSchema = z.object({
@@ -340,6 +365,66 @@ const assertDateWindow = (startDate: string, endDate: string, maxDays: number): 
   }
 }
 
+const parseBigIntLike = (value: unknown): bigint | null => {
+  if (typeof value !== 'string' || !/^-?\d+$/.test(value)) {
+    return null
+  }
+
+  try {
+    return BigInt(value)
+  } catch {
+    return null
+  }
+}
+
+const toInvestorPortfolioMetrics = (
+  payload: unknown,
+): {
+  hasInvested: boolean
+  investedBatchCount: number
+  totalUnitsOwned: string
+  totalCostBasisMinor: string
+} | null => {
+  if (typeof payload !== 'object' || payload === null) {
+    return null
+  }
+
+  const positions = (payload as { positions?: unknown }).positions
+  if (!Array.isArray(positions)) {
+    return null
+  }
+
+  let totalUnitsOwned = 0n
+  let totalCostBasisMinor = 0n
+  let investedBatchCount = 0
+
+  for (const position of positions) {
+    if (typeof position !== 'object' || position === null) {
+      continue
+    }
+
+    const unitsOwned = parseBigIntLike((position as { unitsOwned?: unknown }).unitsOwned)
+    const costBasisMinor = parseBigIntLike((position as { costBasisMinor?: unknown }).costBasisMinor)
+
+    if (unitsOwned === null || costBasisMinor === null) {
+      continue
+    }
+
+    totalUnitsOwned += unitsOwned
+    totalCostBasisMinor += costBasisMinor
+    if (unitsOwned > 0n) {
+      investedBatchCount += 1
+    }
+  }
+
+  return {
+    hasInvested: totalUnitsOwned > 0n,
+    investedBatchCount,
+    totalUnitsOwned: totalUnitsOwned.toString(),
+    totalCostBasisMinor: totalCostBasisMinor.toString(),
+  }
+}
+
 export interface BuildAppOptions {
   config?: AppConfig
   now?: () => Date
@@ -467,12 +552,60 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
   }
 
+  const getInvestorPortfolioMetrics = async (
+    wallet: string,
+  ): Promise<{
+    hasInvested: boolean
+    investedBatchCount: number
+    totalUnitsOwned: string
+    totalCostBasisMinor: string
+    portfolioStatus: 'ok' | 'unavailable'
+  }> => {
+    try {
+      const response = await fetchFn(`${config.squareProxyBaseUrl}/frontend/portfolio?wallet=${encodeURIComponent(wallet)}`, {
+        signal: AbortSignal.timeout(config.squareProxyTimeoutMs),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Unexpected status ${response.status}`)
+      }
+
+      const payload = (await response.json()) as unknown
+      const metrics = toInvestorPortfolioMetrics(payload)
+      if (!metrics) {
+        throw new Error('Invalid portfolio payload')
+      }
+
+      return {
+        ...metrics,
+        portfolioStatus: 'ok',
+      }
+    } catch {
+      return {
+        hasInvested: false,
+        investedBatchCount: 0,
+        totalUnitsOwned: '0',
+        totalCostBasisMinor: '0',
+        portfolioStatus: 'unavailable',
+      }
+    }
+  }
+
   app.get('/', async () => {
     return getHealthPayload()
   })
 
   app.get('/health', async () => {
     return getHealthPayload()
+  })
+
+  app.get('/wallet/capabilities', async (request) => {
+    const authenticated = await assertWalletRequestAuth(request, 'authenticated')
+
+    return {
+      address: authenticated.address,
+      capabilities: authenticated.capabilities,
+    }
   })
 
   app.post('/kyc/start', async (request, reply) => {
@@ -733,6 +866,82 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     }
   })
 
+  app.get('/compliance/kyc/requests', async (request) => {
+    await assertWalletRequestAuth(request, 'compliance')
+
+    const parsed = complianceKycRequestsQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      throw new AppError('INVALID_INPUT', 'Invalid query parameters', 400, {
+        issues: parsed.error.issues.map((issue: z.ZodIssue) => ({ path: issue.path.join('.'), message: issue.message })),
+      })
+    }
+
+    const listed = await store.listRequests({
+      status: parsed.data.status,
+      wallet: parsed.data.wallet,
+      offset: parsed.data.cursor ?? 0,
+      limit: parsed.data.limit,
+    })
+
+    return {
+      records: listed.records.map((record) => ({
+        requestId: record.requestId,
+        wallet: record.wallet,
+        chainId: record.chainId,
+        status: record.status,
+        sumsubReviewAnswer: record.sumsubReviewAnswer,
+        attemptCount: record.attemptCount,
+        nextRetryAt: record.nextRetryAt,
+        processingLockUntil: record.processingLockUntil,
+        lastErrorCode: record.lastErrorCode,
+        lastErrorMessage: record.lastErrorMessage,
+        onchainTxHash: record.onchainTxHash,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      })),
+      nextCursor: listed.nextCursor,
+    }
+  })
+
+  app.get('/compliance/investors', async (request) => {
+    await assertWalletRequestAuth(request, 'compliance')
+
+    const parsed = complianceInvestorsQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      throw new AppError('INVALID_INPUT', 'Invalid query parameters', 400, {
+        issues: parsed.error.issues.map((issue: z.ZodIssue) => ({ path: issue.path.join('.'), message: issue.message })),
+      })
+    }
+
+    const listed = await store.listLatestWalletStates({
+      status: parsed.data.status,
+      offset: parsed.data.cursor ?? 0,
+      limit: parsed.data.limit,
+    })
+
+    const records = await Promise.all(
+      listed.records.map(async (record) => {
+        const portfolio = await getInvestorPortfolioMetrics(record.wallet)
+        return {
+          wallet: record.wallet,
+          latestKycStatus: record.status,
+          latestKycUpdatedAt: record.updatedAt,
+          latestRequestId: record.requestId,
+          hasInvested: portfolio.hasInvested,
+          investedBatchCount: portfolio.investedBatchCount,
+          totalUnitsOwned: portfolio.totalUnitsOwned,
+          totalCostBasisMinor: portfolio.totalCostBasisMinor,
+          portfolioStatus: portfolio.portfolioStatus,
+        }
+      }),
+    )
+
+    return {
+      records,
+      nextCursor: listed.nextCursor,
+    }
+  })
+
   app.post('/compliance/reports', async (request, reply) => {
     await assertWalletRequestAuth(request, 'compliance')
 
@@ -769,6 +978,41 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       status: created.status,
       createdAt: created.createdAt,
       pollAfterMs: 2000,
+    }
+  })
+
+  app.get('/compliance/reports', async (request) => {
+    await assertWalletRequestAuth(request, 'compliance')
+
+    const parsed = complianceReportsListQuerySchema.safeParse(request.query)
+    if (!parsed.success) {
+      throw new AppError('INVALID_INPUT', 'Invalid query parameters', 400, {
+        issues: parsed.error.issues.map((issue: z.ZodIssue) => ({ path: issue.path.join('.'), message: issue.message })),
+      })
+    }
+
+    const listed = await complianceStore.listRequests({
+      status: parsed.data.status,
+      merchantIdHash: parsed.data.merchantIdHash,
+      offset: parsed.data.cursor ?? 0,
+      limit: parsed.data.limit,
+    })
+
+    return {
+      records: listed.records.map((record) => ({
+        requestId: record.requestId,
+        merchantIdHash: record.merchantIdHash,
+        startDate: record.startDate,
+        endDate: record.endDate,
+        status: record.status,
+        attemptCount: record.attemptCount,
+        nextRetryAt: record.nextRetryAt,
+        errorCode: record.lastErrorCode,
+        errorMessage: record.lastErrorMessage,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      })),
+      nextCursor: listed.nextCursor,
     }
   })
 

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { ComplianceOperationsPanel } from '@/features/compliance/compliance-operations-panel'
 import { useTransactionAction } from '@/features/transactions/use-transaction-action'
 import { useCapabilities } from '@/hooks/use-capabilities'
 import { contracts } from '@/lib/web3/contracts'
@@ -97,6 +98,8 @@ export const AdminDashboard = () => {
         title="Admin and Trust Controls"
         subtitle="Inspect and adjust workflow trust metadata enforced by OracleCoordinator guardrails."
       />
+
+      <ComplianceOperationsPanel />
 
       <Card>
         <div className="flex items-center justify-between">
