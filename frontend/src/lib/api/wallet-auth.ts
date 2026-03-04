@@ -243,10 +243,14 @@ export const getWalletApiAuthHeaders = async (
   account: WalletAuthAccount | undefined,
   baseUrl: string,
 ): Promise<Record<string, string>> => {
-  const address = account?.address?.toLowerCase();
-  if (!address) {
+  if (!account?.address || typeof account.signMessage !== "function") {
     throw new Error("Wallet authentication is required");
   }
+  const address = account.address.toLowerCase();
+  const authenticatedAccount: WalletAuthAccount = {
+    address: account.address,
+    signMessage: account.signMessage,
+  };
 
   const nowMs = Date.now();
   const cached = getCachedApiSession(address, nowMs);
@@ -256,7 +260,7 @@ export const getWalletApiAuthHeaders = async (
     };
   }
 
-  const session = await requestWalletApiSession(account, baseUrl);
+  const session = await requestWalletApiSession(authenticatedAccount, baseUrl);
   return {
     "x-auth-session": session.token,
   };
