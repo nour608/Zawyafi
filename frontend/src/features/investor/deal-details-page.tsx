@@ -336,8 +336,8 @@ export const DealDetailsPage = () => {
                             </Card>
                             <Card className="space-y-1">
                                 <p className="text-xs uppercase tracking-[0.16em] text-textMuted">Tracked Square Units</p>
-                                <p className="text-2xl font-semibold text-text">{batch.frontendBatch?.unitsSettled ?? '0'}</p>
-                                <p className="text-xs text-textMuted">synced from indexer API</p>
+                                <p className="text-2xl font-semibold text-text">{batch.trackedUnits.toString()}</p>
+                                <p className="text-xs text-textMuted">synced from oracle index</p>
                             </Card>
                             <Card className="space-y-1">
                                 <p className="text-xs uppercase tracking-[0.16em] text-textMuted">Revenue Settled</p>

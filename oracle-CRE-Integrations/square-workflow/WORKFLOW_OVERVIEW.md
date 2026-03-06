@@ -17,7 +17,9 @@ flowchart LR
 
   E3 --> F["Filter to tokenized categories"]
   F --> G["Build PeriodReport(s)"]
-  G --> H{skipWrite?}
+  G --> G1{"RevenueRegistry<br/>isPeriodRecorded(periodId)?"}
+  G1 -- True --> G2["Skip Report"]
+  G1 -- False --> H{"skipWrite?"}
   H -- true --> I["Log only / simulation"]
   H -- false --> J["CRE writeReport"]
   J --> K["OracleCoordinator.onReport"]
@@ -30,13 +32,14 @@ flowchart LR
 1. Fetch Square payments and refunds for the configured window.
 2. Infer category from each payment note, then compute `categoryHash = keccak256(categoryName)`.
 3. Read onchain:
-   - `settlementVault` from `OracleCoordinator`
+   - `settlementVault` and `revenueRegistry` from `OracleCoordinator`
    - `isBatchFinished(batchId)` from `SettlementVault`
    - `factory` and tokenized category hashes from `ProductBatchFactory`
 4. Stop early if batch is finished.
 5. Keep only categories that are tokenized for this batch.
 6. Build one `PeriodReport` per eligible category with activity.
-7. Submit `writeReport` to `OracleCoordinator` (unless `skipWrite=true`).
+7. Check `isPeriodRecorded(periodId)` from `RevenueRegistry`. Skip any reports that are already onchain.
+8. Submit `writeReport` to `OracleCoordinator` (unless `skipWrite=true`).
 
 ## Key Config Fields
 
@@ -72,7 +75,7 @@ cre workflow simulate ./square-workflow --target staging-settings --non-interact
 Broadcast simulation:
 
 ```bash
-cre workflow simulate ./square-workflow --target staging-settings --non-interactive --trigger-index 0 --broadcast -g -v
+cre workflow simulate ./square-workflow --target staging-settings --non-interactive --trigger-index 0 --broadcast
 ```
 
 For real writes, set `skipWrite` to `false` in `config.staging.json` before the broadcast run.

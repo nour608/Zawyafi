@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { readContract } from 'thirdweb'
+import { getContractEvents, prepareEvent, readContract } from 'thirdweb'
+import { encodeAbiParameters, keccak256, parseAbiParameters } from 'viem'
 import { type ListingMeta, listingStore } from '@/lib/listing-store'
 import { contracts } from '@/lib/web3/contracts'
 import { apiClient } from '@/lib/api/client'
@@ -39,8 +40,9 @@ export interface BatchOnChain {
 export interface EnrichedBatch {
     onChain: BatchOnChain
     categories: CategoryState[]
-    meta: ListingMeta | undefined
-    frontendBatch: BatchView | undefined
+    meta?: ListingMeta
+    frontendBatch?: BatchView
+    trackedUnits: bigint
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -143,6 +145,7 @@ export const useChainBatches = () => {
                         categories: (categoryResults[i] ?? []) as CategoryState[],
                         meta: metaByBatchId.get(String(batch.id)),
                         frontendBatch: indexerBatches.find((b) => Number(b.batchId) === Number(batch.id)),
+                        trackedUnits: 0n,
                     }
                 })
 
@@ -223,12 +226,34 @@ export const useChainBatch = (batchId: number) => {
                     console.error('Failed to fetch frontend batch:', e)
                 }
 
+                let trackedUnits = 0n
+                try {
+                    const targetHash = keccak256(encodeAbiParameters(parseAbiParameters('uint256'), [id]))
+                    const events = await getContractEvents({
+                        contract: contracts.revenueRegistry,
+                        events: [
+                            prepareEvent({
+                                signature:
+                                    'event PeriodRecorded(bytes32 indexed periodId, bytes32 indexed merchantIdHash, bytes32 indexed productIdHash, uint8 status, uint256 netUnitsSold, bytes32 batchHash)',
+                            }),
+                        ],
+                    })
+
+                    const matched = events.filter((e) => (e.args as { batchHash: string }).batchHash === targetHash)
+                    for (const ev of matched) {
+                        trackedUnits += (ev.args as { netUnitsSold: bigint }).netUnitsSold
+                    }
+                } catch (err) {
+                    console.error('Failed to fetch RevenueRegistry events:', err)
+                }
+
                 const onChain = rawBatch as BatchOnChain
                 setBatch({
                     onChain,
                     categories: categories as CategoryState[],
                     meta: meta,
                     frontendBatch,
+                    trackedUnits,
                 })
             } catch (err) {
                 if (!cancelled) {
