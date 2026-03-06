@@ -1,12 +1,12 @@
 {
   "schedule": "*/1 * * * *",
-  "backendBaseUrl": "http://127.0.0.1:3000",
+  "backendBaseUrl": "https://api.zawyafi.com",
   "backendInternalToken": "",
   "readyOnchainPath": "/internal/kyc/ready-onchain",
   "onchainResultPath": "/internal/kyc/onchain-result",
   "chainSelectorName": "ethereum-testnet-sepolia",
   "isTestnet": true,
-  "kycReceiverAddress": "0x0000000000000000000000000000000000000000",
+  "kycReceiverAddress": "0xe706556EeFc0d056A96868e1A38567d8fe3e9bf9",
   "gasLimit": "700000",
   "maxBatch": 25
 }

@@ -4,13 +4,13 @@
   "squareVersion": "2026-01-22",
   "locationId": "REPLACE_WITH_LOCATION_ID",
   "merchantId": "REPLACE_WITH_MERCHANT_ID",
-  "category": "Coffee",
   "batchId": "1",
   "oracleCoordinatorAddress": "REPLACE_WITH_ORACLE_COORDINATOR_ADDRESS",
-  "chainSelectorName": "ethereum-testnet-sepolia",
-  "isTestnet": true,
+  "chainSelectorName": "ethereum-mainnet",
+  "isTestnet": false,
   "gasLimit": "500000",
   "anomalyRefundRatioBpsThreshold": 2500,
   "anomalyNetSalesSpikeCentsThreshold": "1000000",
+  "minEventCountForWrite": 1,
   "skipWrite": false
 }

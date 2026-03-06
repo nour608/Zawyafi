@@ -22,9 +22,9 @@ contract SettlementVault is AccessControl, Pausable, ReentrancyGuard, ISettlemen
     IProductBatchFactory public immutable factory;
 
     mapping(uint256 => uint256) public batchLiquidity;
-    mapping(uint256 => uint256) public unitsSettled;
-    mapping(uint256 => uint256) public unitsClaimed;
-    mapping(uint256 => mapping(bytes32 => bool)) public periodAlreadySettled;
+    mapping(uint256 => uint256) public claimedPayoutTotal;
+    mapping(uint256 => uint256) private _settledRevenueTotal;
+    mapping(uint256 => mapping(bytes32 => mapping(bytes32 => bool))) public periodCategoryAlreadySettled;
 
     constructor(address factory_, address admin_, address oracle_) {
         require(factory_ != address(0), "SettlementVault: invalid factory");
@@ -54,71 +54,107 @@ contract SettlementVault is AccessControl, Pausable, ReentrancyGuard, ISettlemen
         emit BatchFunded(batchId, msg.sender, receivedAmount);
     }
 
-    function settleUnits(bytes32 periodId, uint256 batchId, uint256 netUnitsSold)
+    function settleCategoryRevenue(bytes32 periodId, uint256 batchId, bytes32 categoryIdHash, uint256 netSalesAmount)
         external
         onlyRole(ORACLE_ROLE)
         nonReentrant
         whenNotPaused
-        returns (uint256 unitsSettledNow)
+        returns (uint256 settledAmount)
     {
         require(periodId != bytes32(0), "SettlementVault: invalid period");
-        require(!periodAlreadySettled[batchId][periodId], "SettlementVault: period already settled");
+        require(netSalesAmount > 0, "SettlementVault: invalid net sales");
+        require(!periodCategoryAlreadySettled[batchId][categoryIdHash][periodId], "SettlementVault: period settled");
+        require(factory.isCategoryTokenized(batchId, categoryIdHash), "SettlementVault: category not tokenized");
 
         InventoryTypes.Batch memory batch = factory.getBatch(batchId);
         require(batch.id != 0, "SettlementVault: unknown batch");
-        require(batch.unitPayout > 0, "SettlementVault: invalid unit payout");
 
-        uint256 remainingUnits = batch.unitsSoldToInvestors - unitsSettled[batchId];
-        uint256 liquidityUnits = batchLiquidity[batchId] / batch.unitPayout;
+        uint256 target = batch.targetPayoutTotal;
+        uint256 settledSoFar = _settledRevenueTotal[batchId];
+        uint256 targetRemaining = target > settledSoFar ? target - settledSoFar : 0;
 
-        unitsSettledNow = netUnitsSold;
-        if (unitsSettledNow > remainingUnits) {
-            unitsSettledNow = remainingUnits;
-        }
-        if (unitsSettledNow > liquidityUnits) {
-            unitsSettledNow = liquidityUnits;
+        settledAmount = netSalesAmount;
+        if (settledAmount > targetRemaining) {
+            settledAmount = targetRemaining;
         }
 
-        periodAlreadySettled[batchId][periodId] = true;
-
-        if (unitsSettledNow > 0) {
-            unitsSettled[batchId] += unitsSettledNow;
+        uint256 liquidityAvailable = batchLiquidity[batchId];
+        if (settledAmount > liquidityAvailable) {
+            settledAmount = liquidityAvailable;
         }
 
-        emit UnitsSettled(periodId, batchId, netUnitsSold, unitsSettledNow, liquidityUnits);
+        periodCategoryAlreadySettled[batchId][categoryIdHash][periodId] = true;
+
+        if (settledAmount > 0) {
+            _settledRevenueTotal[batchId] = settledSoFar + settledAmount;
+            factory.recordSettledRevenue(periodId, batchId, categoryIdHash, settledAmount);
+        }
+
+        uint256 remainingAfterSettle = target > _settledRevenueTotal[batchId] ? target - _settledRevenueTotal[batchId] : 0;
+
+        emit CategoryRevenueSettled(
+            periodId, batchId, categoryIdHash, netSalesAmount, settledAmount, remainingAfterSettle
+        );
     }
 
-    function claim(uint256 batchId, uint256 unitsToRedeem)
+    function claim(uint256 batchId, uint256 sharesToRedeem)
         external
         nonReentrant
         whenNotPaused
         returns (uint256 payoutAmount)
     {
-        require(unitsToRedeem > 0, "SettlementVault: invalid units");
+        require(sharesToRedeem > 0, "SettlementVault: invalid shares");
 
         InventoryTypes.Batch memory batch = factory.getBatch(batchId);
         require(batch.id != 0, "SettlementVault: unknown batch");
 
-        uint256 availableGlobal = unitsSettled[batchId] - unitsClaimed[batchId];
-        require(unitsToRedeem <= availableGlobal, "SettlementVault: insufficient claimable units");
+        uint256 shareAmount = sharesToRedeem * UNIT;
+        uint256 accountShares = IERC20(batch.unitToken).balanceOf(msg.sender);
+        require(shareAmount <= accountShares, "SettlementVault: insufficient shares");
 
-        uint256 accountUnits = IERC20(batch.unitToken).balanceOf(msg.sender) / UNIT;
-        require(unitsToRedeem <= accountUnits, "SettlementVault: insufficient unit balance");
+        uint256 totalShares = IERC20(batch.unitToken).totalSupply();
+        require(totalShares > 0, "SettlementVault: no shares supply");
 
-        uint256 burnAmount = unitsToRedeem * UNIT;
-        payoutAmount = unitsToRedeem * batch.unitPayout;
+        uint256 availablePayout = claimableAmount(batchId);
+        require(availablePayout > 0, "SettlementVault: no claimable amount");
 
-        unitsClaimed[batchId] += unitsToRedeem;
+        payoutAmount = (availablePayout * shareAmount) / totalShares;
+        require(payoutAmount > 0, "SettlementVault: payout too small");
+
+        claimedPayoutTotal[batchId] += payoutAmount;
         batchLiquidity[batchId] -= payoutAmount;
 
-        UnitToken(batch.unitToken).burnFrom(msg.sender, burnAmount);
+        UnitToken(batch.unitToken).burnFrom(msg.sender, shareAmount);
         IERC20(batch.purchaseToken).safeTransfer(msg.sender, payoutAmount);
 
-        emit Claimed(batchId, msg.sender, unitsToRedeem, payoutAmount);
+        emit Claimed(batchId, msg.sender, sharesToRedeem, payoutAmount);
     }
 
-    function claimableGlobalUnits(uint256 batchId) external view returns (uint256) {
-        return unitsSettled[batchId] - unitsClaimed[batchId];
+    function claimableAmount(uint256 batchId) public view returns (uint256) {
+        uint256 settled = _settledRevenueTotal[batchId];
+        uint256 claimed = claimedPayoutTotal[batchId];
+        if (settled <= claimed) {
+            return 0;
+        }
+        uint256 available = settled - claimed;
+        uint256 liquidity = batchLiquidity[batchId];
+        return available < liquidity ? available : liquidity;
+    }
+
+    function isRevenueTargetReached(uint256 batchId) public view returns (bool) {
+        return _settledRevenueTotal[batchId] >= targetPayoutTotal(batchId);
+    }
+
+    function isBatchFinished(uint256 batchId) external view returns (bool) {
+        return factory.isBatchClosed(batchId) && isRevenueTargetReached(batchId);
+    }
+
+    function targetPayoutTotal(uint256 batchId) public view returns (uint256) {
+        return factory.getBatch(batchId).targetPayoutTotal;
+    }
+
+    function settledRevenueTotal(uint256 batchId) external view returns (uint256) {
+        return _settledRevenueTotal[batchId];
     }
 
     function pause() external onlyRole(ADMIN_ROLE) {

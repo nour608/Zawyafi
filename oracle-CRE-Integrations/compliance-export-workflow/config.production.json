@@ -9,5 +9,7 @@
   "revenueRegistryAddress": "0x0000000000000000000000000000000000000000",
   "revenueRegistryDeployBlock": "0",
   "maxBatch": 25,
-  "gaslessReadMode": true
+  "scanLookbackBlocks": "150000",
+  "minConfirmations": 3,
+  "resultPostMaxAttempts": 2
 }

@@ -16857,11 +16857,76 @@ init_keccak256();
 var ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 var ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
 var MAX_FILTER_LOG_RANGE_BLOCKS = 50000n;
+var DEFAULT_SCAN_LOOKBACK_BLOCKS = 150000n;
+var DEFAULT_MIN_CONFIRMATIONS = 3;
+var DEFAULT_RESULT_POST_MAX_ATTEMPTS = 2;
 var PERIOD_RECORDED_TOPIC0 = toEventSelector("PeriodRecorded(bytes32,bytes32,bytes32,uint8,uint256,bytes32)");
-var reasonCodes = new Set(["OK", "REFUND_RATIO", "SUDDEN_SPIKE", "REFUND_AND_SPIKE"]);
+var DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+var REASON_CODES = new Set(["OK", "REFUND_RATIO", "SUDDEN_SPIKE", "REFUND_AND_SPIKE"]);
+var TOPIC_FILTER_FALLBACK_ERROR = "TOPIC_FILTER_UNSUPPORTED";
 var revenueRegistryAbi = parseAbi([
   "function getPeriod(bytes32 periodId) view returns ((bytes32 periodId, bytes32 merchantIdHash, bytes32 productIdHash, uint64 periodStart, uint64 periodEnd, uint256 grossSales, uint256 refunds, uint256 netSales, uint256 unitsSold, uint256 refundUnits, uint256 netUnitsSold, uint256 eventCount, bytes32 batchHash, uint64 generatedAt, uint8 status, uint16 riskScore, bytes32 reasonCode))"
 ]);
+var isValidDateOnly = (value2) => {
+  if (!DATE_ONLY_REGEX.test(value2))
+    return false;
+  const parsed = Date.parse(`${value2}T00:00:00.000Z`);
+  return Number.isFinite(parsed);
+};
+var dateToStartSeconds = (value2) => {
+  const parsed = Date.parse(`${value2}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid date: ${value2}`);
+  }
+  return BigInt(Math.floor(parsed / 1000));
+};
+var dateToEndSeconds = (value2) => {
+  const parsed = Date.parse(`${value2}T23:59:59.999Z`);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid date: ${value2}`);
+  }
+  return BigInt(Math.floor(parsed / 1000));
+};
+var dateToEndIso = (value2) => {
+  const parsed = Date.parse(`${value2}T23:59:59.999Z`);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid date: ${value2}`);
+  }
+  return new Date(parsed).toISOString();
+};
+var ReadyRecordSchema = exports_external.object({
+  requestId: exports_external.string().trim().min(1),
+  merchantIdHash: exports_external.string().regex(/^0x[a-fA-F0-9]{64}$/),
+  startDate: exports_external.string(),
+  endDate: exports_external.string()
+}).strict().superRefine((record, ctx) => {
+  if (!isValidDateOnly(record.startDate)) {
+    ctx.addIssue({
+      code: exports_external.ZodIssueCode.custom,
+      path: ["startDate"],
+      message: "Must be a valid YYYY-MM-DD date"
+    });
+  }
+  if (!isValidDateOnly(record.endDate)) {
+    ctx.addIssue({
+      code: exports_external.ZodIssueCode.custom,
+      path: ["endDate"],
+      message: "Must be a valid YYYY-MM-DD date"
+    });
+  }
+  if (isValidDateOnly(record.startDate) && isValidDateOnly(record.endDate)) {
+    if (dateToStartSeconds(record.startDate) > dateToEndSeconds(record.endDate)) {
+      ctx.addIssue({
+        code: exports_external.ZodIssueCode.custom,
+        path: ["startDate"],
+        message: "Must be less than or equal to endDate"
+      });
+    }
+  }
+});
+var ReadyResponseSchema = exports_external.object({
+  records: exports_external.array(exports_external.unknown())
+}).strict();
 var configSchema = exports_external.object({
   schedule: exports_external.string(),
   backendBaseUrl: exports_external.string().min(1),
@@ -16873,7 +16938,9 @@ var configSchema = exports_external.object({
   revenueRegistryAddress: exports_external.string().regex(/^0x[a-fA-F0-9]{40}$/),
   revenueRegistryDeployBlock: exports_external.coerce.bigint(),
   maxBatch: exports_external.coerce.number().int().positive(),
-  gaslessReadMode: exports_external.boolean()
+  scanLookbackBlocks: exports_external.coerce.bigint().positive().optional(),
+  minConfirmations: exports_external.coerce.number().int().nonnegative().optional(),
+  resultPostMaxAttempts: exports_external.coerce.number().int().positive().optional()
 });
 var getSecretValue = (runtime2, id) => {
   const attempts = [
@@ -16943,7 +17010,7 @@ var decodeReasonCode = (value2) => {
     const decoded = hexToString(value2, { size: 32 }).replace(/\u0000/g, "").trim().toUpperCase();
     if (!decoded)
       return "OK";
-    if (reasonCodes.has(decoded)) {
+    if (REASON_CODES.has(decoded)) {
       return decoded;
     }
     return "UNKNOWN";
@@ -16952,8 +17019,8 @@ var decodeReasonCode = (value2) => {
   }
 };
 var withinDateWindow = (periodStart, periodEnd, startDate, endDate) => {
-  const startSec = BigInt(Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000));
-  const endSec = BigInt(Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000));
+  const startSec = dateToStartSeconds(startDate);
+  const endSec = dateToEndSeconds(endDate);
   return !(periodEnd < startSec || periodStart > endSec);
 };
 var computeMerkleRoot = (periodIds) => {
@@ -16973,23 +17040,136 @@ var computeMerkleRoot = (periodIds) => {
   }
   return level[0];
 };
-var filterPeriodRecordedLogs = (runtime2, evmClient, fromBlock, toBlock) => {
+var computeScanBounds = (latestBlock, deployBlock, lookbackBlocks, minConfirmations) => {
+  const confirmations = BigInt(minConfirmations);
+  const safeHead = latestBlock > confirmations ? latestBlock - confirmations : 0n;
+  const lookbackFloor = safeHead >= lookbackBlocks - 1n ? safeHead - lookbackBlocks + 1n : 0n;
+  const fromBlock = lookbackFloor > deployBlock ? lookbackFloor : deployBlock;
+  return {
+    fromBlock,
+    toBlock: safeHead
+  };
+};
+var getDeterministicGeneratedAt = (periods, endDate) => {
+  if (periods.length === 0) {
+    return dateToEndIso(endDate);
+  }
+  let latest = periods[0].generatedAt;
+  for (const period of periods) {
+    if (period.generatedAt > latest) {
+      latest = period.generatedAt;
+    }
+  }
+  return latest;
+};
+var computeReportHash = (payloadForHash) => {
+  return keccak256(stringToHex(JSON.stringify(payloadForHash)));
+};
+var formatZodIssues = (error) => {
+  return error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "root";
+    return `${path}: ${issue.message}`;
+  }).join("; ");
+};
+var extractFallbackRequestId = (record) => {
+  if (!record || typeof record !== "object")
+    return "";
+  const requestId = record.requestId;
+  return typeof requestId === "string" ? requestId : "";
+};
+var getUrlProtocol = (url) => {
+  const normalized = url.trim().toLowerCase();
+  if (normalized.startsWith("https://"))
+    return "https:";
+  if (normalized.startsWith("http://"))
+    return "http:";
+  throw new Error(`Invalid backendBaseUrl: ${url}`);
+};
+var validateRuntimeConfig = (runtime2) => {
+  const protocol = getUrlProtocol(runtime2.config.backendBaseUrl);
+  if (protocol !== "https:") {
+    if (runtime2.config.isTestnet) {
+      runtime2.log(`WARNING: backendBaseUrl is not HTTPS: ${runtime2.config.backendBaseUrl}`);
+    } else {
+      throw new Error(`backendBaseUrl must use HTTPS in production: ${runtime2.config.backendBaseUrl}`);
+    }
+  }
+  if (!runtime2.config.isTestnet && runtime2.config.revenueRegistryAddress.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error("revenueRegistryAddress must not be zero on non-testnet deployments");
+  }
+};
+var getScanLookbackBlocks = (runtime2) => {
+  return runtime2.config.scanLookbackBlocks ?? DEFAULT_SCAN_LOOKBACK_BLOCKS;
+};
+var getMinConfirmations = (runtime2) => {
+  return runtime2.config.minConfirmations ?? DEFAULT_MIN_CONFIRMATIONS;
+};
+var getResultPostMaxAttempts = (runtime2) => {
+  return runtime2.config.resultPostMaxAttempts ?? DEFAULT_RESULT_POST_MAX_ATTEMPTS;
+};
+var postResultWithRetry = (runtime2, backendToken, body) => {
+  let lastError = null;
+  const maxAttempts = getResultPostMaxAttempts(runtime2);
+  for (let attempt = 1;attempt <= maxAttempts; attempt += 1) {
+    try {
+      sendJson(runtime2, {
+        url: `${runtime2.config.backendBaseUrl}${runtime2.config.resultPath}`,
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${backendToken}`
+        },
+        body
+      });
+      if (attempt > 1) {
+        runtime2.log(`Result callback succeeded on retry attempt ${attempt}`);
+      }
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastError = new Error(message);
+      runtime2.log(`Result callback attempt ${attempt}/${maxAttempts} failed: ${message}`);
+    }
+  }
+  throw new Error(`Result callback failed after ${maxAttempts} attempts: ${lastError?.message}`);
+};
+var filterPeriodRecordedLogs = (runtime2, evmClient, fromBlock, toBlock, merchantIdHash) => {
   const logs = [];
   if (fromBlock > toBlock) {
     return logs;
   }
+  const eventOnlyTopics = [{ topic: [hexToBase64(PERIOD_RECORDED_TOPIC0)] }];
+  const eventAndMerchantTopics = [
+    { topic: [hexToBase64(PERIOD_RECORDED_TOPIC0)] },
+    { topic: [] },
+    { topic: [hexToBase64(merchantIdHash)] }
+  ];
+  let useMerchantTopicFilter = true;
   let cursor = fromBlock;
   while (cursor <= toBlock) {
     const chunkToBlock = cursor + (MAX_FILTER_LOG_RANGE_BLOCKS - 1n);
     const chunkEnd = chunkToBlock < toBlock ? chunkToBlock : toBlock;
-    const response = evmClient.filterLogs(runtime2, {
+    const runFilter = (topics) => evmClient.filterLogs(runtime2, {
       filterQuery: {
         fromBlock: toValuesBigIntJson(cursor),
         toBlock: toValuesBigIntJson(chunkEnd),
         addresses: [hexToBase64(runtime2.config.revenueRegistryAddress)],
-        topics: [{ topic: [hexToBase64(PERIOD_RECORDED_TOPIC0)] }]
+        topics
       }
     }).result();
+    let response;
+    if (useMerchantTopicFilter) {
+      try {
+        response = runFilter(eventAndMerchantTopics);
+      } catch {
+        useMerchantTopicFilter = false;
+        runtime2.log(`Topic-level merchant filter unavailable, falling back (${TOPIC_FILTER_FALLBACK_ERROR})`);
+        response = runFilter(eventOnlyTopics);
+      }
+    } else {
+      response = runFilter(eventOnlyTopics);
+    }
     logs.push(...response.logs ?? []);
     cursor = chunkEnd + 1n;
   }
@@ -16998,9 +17178,10 @@ var filterPeriodRecordedLogs = (runtime2, evmClient, fromBlock, toBlock) => {
 var buildReportForRecord = (runtime2, evmClient, record) => {
   const latestHeader = evmClient.headerByNumber(runtime2, {}).result().header;
   const latestBlock = parseValuesBigInt(latestHeader?.blockNumber ?? undefined);
-  const fromBlock = runtime2.config.revenueRegistryDeployBlock;
-  const toBlock = latestBlock > fromBlock ? latestBlock : fromBlock;
-  const logs = filterPeriodRecordedLogs(runtime2, evmClient, fromBlock, toBlock);
+  const scanBounds = computeScanBounds(latestBlock, runtime2.config.revenueRegistryDeployBlock, getScanLookbackBlocks(runtime2), getMinConfirmations(runtime2));
+  runtime2.log(`Scanning compliance logs for request=${record.requestId} merchant=${record.merchantIdHash.toLowerCase()} fromBlock=${scanBounds.fromBlock} toBlock=${scanBounds.toBlock}`);
+  const logs = filterPeriodRecordedLogs(runtime2, evmClient, scanBounds.fromBlock, scanBounds.toBlock, record.merchantIdHash.toLowerCase());
+  runtime2.log(`Scan complete request=${record.requestId} totalLogs=${logs.length}`);
   const periodLogMap = new Map;
   for (const log of logs) {
     if (log.removed) {
@@ -17023,6 +17204,7 @@ var buildReportForRecord = (runtime2, evmClient, record) => {
       merchantIdHash
     });
   }
+  runtime2.log(`Matched period logs request=${record.requestId} uniquePeriods=${periodLogMap.size}`);
   const periods = [];
   for (const [periodId, logMeta] of periodLogMap.entries()) {
     const callData = encodeFunctionData({
@@ -17102,14 +17284,14 @@ var buildReportForRecord = (runtime2, evmClient, record) => {
   });
   const periodMerkleRoot = computeMerkleRoot(periods.map((period) => period.periodId));
   const payloadForHash = {
-    generatedAt: runtime2.now().toISOString(),
+    generatedAt: getDeterministicGeneratedAt(periods, record.endDate),
     merchantIdHash: record.merchantIdHash.toLowerCase(),
     startDate: record.startDate,
     endDate: record.endDate,
     chainSelectorName: runtime2.config.chainSelectorName,
     revenueRegistryAddress: runtime2.config.revenueRegistryAddress,
-    scanFromBlock: fromBlock.toString(),
-    scanToBlock: toBlock.toString(),
+    scanFromBlock: scanBounds.fromBlock.toString(),
+    scanToBlock: scanBounds.toBlock.toString(),
     periodMerkleRoot,
     totals: {
       periodCount: totals.periodCount,
@@ -17124,15 +17306,16 @@ var buildReportForRecord = (runtime2, evmClient, record) => {
     },
     periods
   };
-  const reportHash = keccak256(stringToHex(JSON.stringify(payloadForHash)));
+  const reportHash = computeReportHash(payloadForHash);
   return {
     ...payloadForHash,
     reportHash
   };
 };
 var onCronTrigger = (runtime2, _payload) => {
+  validateRuntimeConfig(runtime2);
   const backendToken = runtime2.config.backendInternalToken?.trim() || getSecretValue(runtime2, "BACKEND_INTERNAL_TOKEN");
-  const ready = sendJson(runtime2, {
+  const readyRaw = sendJson(runtime2, {
     url: `${runtime2.config.backendBaseUrl}${runtime2.config.readyPath}?limit=${runtime2.config.maxBatch}`,
     method: "GET",
     headers: {
@@ -17140,9 +17323,20 @@ var onCronTrigger = (runtime2, _payload) => {
       Authorization: `Bearer ${backendToken}`
     }
   });
-  if (!ready.records || ready.records.length === 0) {
+  const readyParsed = ReadyResponseSchema.safeParse(readyRaw);
+  if (!readyParsed.success) {
+    throw new Error(`Invalid ready response: ${formatZodIssues(readyParsed.error)}`);
+  }
+  const stats = {
+    processed: 0,
+    failed: 0,
+    callbackFailed: 0,
+    requested: readyParsed.data.records.length
+  };
+  if (stats.requested === 0) {
     runtime2.log("No pending compliance report requests");
-    return JSON.stringify({ processed: 0, requested: 0 });
+    runtime2.log(`Compliance export stats: ${JSON.stringify(stats)}`);
+    return JSON.stringify(stats);
   }
   const network248 = getNetwork({
     chainFamily: "evm",
@@ -17153,53 +17347,74 @@ var onCronTrigger = (runtime2, _payload) => {
     throw new Error(`Network not found: ${runtime2.config.chainSelectorName}`);
   }
   const evmClient = new ClientCapability(network248.chainSelector.selector);
-  let processed = 0;
-  let failed = 0;
-  for (const record of ready.records) {
+  for (const rawRecord of readyParsed.data.records) {
+    const parsedRecord = ReadyRecordSchema.safeParse(rawRecord);
+    if (!parsedRecord.success) {
+      const requestId = extractFallbackRequestId(rawRecord);
+      const errorMessage = formatZodIssues(parsedRecord.error);
+      stats.failed += 1;
+      runtime2.log(`Invalid compliance ready record requestId=${requestId || "<unknown>"}: ${errorMessage}`);
+      try {
+        postResultWithRetry(runtime2, backendToken, {
+          requestId,
+          outcome: "RETRYABLE",
+          errorCode: "INVALID_READY_RECORD",
+          errorMessage
+        });
+      } catch (callbackError) {
+        stats.callbackFailed += 1;
+        const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+        runtime2.log(`Failed to report invalid-record result requestId=${requestId || "<unknown>"}: ${callbackMessage}`);
+      }
+      continue;
+    }
+    const record = parsedRecord.data;
     try {
       const report2 = buildReportForRecord(runtime2, evmClient, record);
-      sendJson(runtime2, {
-        url: `${runtime2.config.backendBaseUrl}${runtime2.config.resultPath}`,
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${backendToken}`
-        },
-        body: {
+      try {
+        postResultWithRetry(runtime2, backendToken, {
           requestId: record.requestId,
           outcome: "SUCCESS",
           report: report2
-        }
-      });
-      runtime2.log(`Compliance report generated for ${record.requestId}: periods=${report2.totals.periodCount}, hash=${report2.reportHash}`);
-      processed += 1;
+        });
+        runtime2.log(`Compliance report generated for ${record.requestId}: periods=${report2.totals.periodCount}, hash=${report2.reportHash}`);
+        stats.processed += 1;
+      } catch (callbackError) {
+        stats.callbackFailed += 1;
+        stats.failed += 1;
+        const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+        runtime2.log(`Compliance callback failed after report generation for ${record.requestId}: ${callbackMessage}`);
+      }
     } catch (error) {
-      failed += 1;
+      stats.failed += 1;
       const errorMessage = error instanceof Error ? error.message : String(error);
       runtime2.log(`Compliance report failed for ${record.requestId}: ${errorMessage}`);
-      sendJson(runtime2, {
-        url: `${runtime2.config.backendBaseUrl}${runtime2.config.resultPath}`,
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${backendToken}`
-        },
-        body: {
+      try {
+        postResultWithRetry(runtime2, backendToken, {
           requestId: record.requestId,
           outcome: "RETRYABLE",
           errorCode: "WORKFLOW_EXCEPTION",
           errorMessage
-        }
-      });
+        });
+      } catch (callbackError) {
+        stats.callbackFailed += 1;
+        const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+        runtime2.log(`Failed to report retryable result for ${record.requestId}: ${callbackMessage}`);
+      }
     }
   }
-  return JSON.stringify({
-    processed,
-    failed,
-    requested: ready.records.length
-  });
+  runtime2.log(`Compliance export stats: ${JSON.stringify(stats)}`);
+  return JSON.stringify(stats);
+};
+var __test__ = {
+  ReadyRecordSchema,
+  computeReportHash,
+  computeScanBounds,
+  decodeReasonCode,
+  getUrlProtocol,
+  getDeterministicGeneratedAt,
+  isValidDateOnly,
+  withinDateWindow
 };
 async function main() {
   const runner = await Runner.newRunner({
@@ -17216,5 +17431,6 @@ async function main() {
 }
 main().catch(sendErrorResponse);
 export {
-  main
+  main,
+  __test__
 };

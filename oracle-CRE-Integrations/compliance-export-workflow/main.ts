@@ -27,15 +27,92 @@ import { z } from 'zod'
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000'
 const MAX_FILTER_LOG_RANGE_BLOCKS = 50_000n
+const DEFAULT_SCAN_LOOKBACK_BLOCKS = 150_000n
+const DEFAULT_MIN_CONFIRMATIONS = 3
+const DEFAULT_RESULT_POST_MAX_ATTEMPTS = 2
 const PERIOD_RECORDED_TOPIC0 = toEventSelector(
   'PeriodRecorded(bytes32,bytes32,bytes32,uint8,uint256,bytes32)',
 )
 
-const reasonCodes = new Set(['OK', 'REFUND_RATIO', 'SUDDEN_SPIKE', 'REFUND_AND_SPIKE'])
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
+const REASON_CODES = new Set(['OK', 'REFUND_RATIO', 'SUDDEN_SPIKE', 'REFUND_AND_SPIKE'])
+const TOPIC_FILTER_FALLBACK_ERROR = 'TOPIC_FILTER_UNSUPPORTED'
 
 const revenueRegistryAbi = parseAbi([
   'function getPeriod(bytes32 periodId) view returns ((bytes32 periodId, bytes32 merchantIdHash, bytes32 productIdHash, uint64 periodStart, uint64 periodEnd, uint256 grossSales, uint256 refunds, uint256 netSales, uint256 unitsSold, uint256 refundUnits, uint256 netUnitsSold, uint256 eventCount, bytes32 batchHash, uint64 generatedAt, uint8 status, uint16 riskScore, bytes32 reasonCode))',
 ])
+
+const isValidDateOnly = (value: string): boolean => {
+  if (!DATE_ONLY_REGEX.test(value)) return false
+  const parsed = Date.parse(`${value}T00:00:00.000Z`)
+  return Number.isFinite(parsed)
+}
+
+const dateToStartSeconds = (value: string): bigint => {
+  const parsed = Date.parse(`${value}T00:00:00.000Z`)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid date: ${value}`)
+  }
+  return BigInt(Math.floor(parsed / 1000))
+}
+
+const dateToEndSeconds = (value: string): bigint => {
+  const parsed = Date.parse(`${value}T23:59:59.999Z`)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid date: ${value}`)
+  }
+  return BigInt(Math.floor(parsed / 1000))
+}
+
+const dateToEndIso = (value: string): string => {
+  const parsed = Date.parse(`${value}T23:59:59.999Z`)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid date: ${value}`)
+  }
+  return new Date(parsed).toISOString()
+}
+
+const ReadyRecordSchema = z
+  .object({
+    requestId: z.string().trim().min(1),
+    merchantIdHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
+    startDate: z.string(),
+    endDate: z.string(),
+  })
+  .strict()
+  .superRefine((record, ctx) => {
+    if (!isValidDateOnly(record.startDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['startDate'],
+        message: 'Must be a valid YYYY-MM-DD date',
+      })
+    }
+
+    if (!isValidDateOnly(record.endDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['endDate'],
+        message: 'Must be a valid YYYY-MM-DD date',
+      })
+    }
+
+    if (isValidDateOnly(record.startDate) && isValidDateOnly(record.endDate)) {
+      if (dateToStartSeconds(record.startDate) > dateToEndSeconds(record.endDate)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['startDate'],
+          message: 'Must be less than or equal to endDate',
+        })
+      }
+    }
+  })
+
+const ReadyResponseSchema = z
+  .object({
+    records: z.array(z.unknown()),
+  })
+  .strict()
 
 const configSchema = z.object({
   schedule: z.string(),
@@ -48,10 +125,13 @@ const configSchema = z.object({
   revenueRegistryAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   revenueRegistryDeployBlock: z.coerce.bigint(),
   maxBatch: z.coerce.number().int().positive(),
-  gaslessReadMode: z.boolean(),
+  scanLookbackBlocks: z.coerce.bigint().positive().optional(),
+  minConfirmations: z.coerce.number().int().nonnegative().optional(),
+  resultPostMaxAttempts: z.coerce.number().int().positive().optional(),
 })
 
 type Config = z.infer<typeof configSchema>
+type ReadyRecord = z.infer<typeof ReadyRecordSchema>
 
 interface ValuesBigInt {
   absVal: Uint8Array
@@ -61,17 +141,6 @@ interface ValuesBigInt {
 interface ValuesBigIntJson {
   absVal: string
   sign: string
-}
-
-interface ReadyRecord {
-  requestId: string
-  merchantIdHash: `0x${string}`
-  startDate: string
-  endDate: string
-}
-
-interface ReadyResponse {
-  records: ReadyRecord[]
 }
 
 interface ComplianceReportPeriod {
@@ -120,6 +189,20 @@ interface ComplianceReportPacket {
     unverifiedCount: number
   }
   periods: ComplianceReportPeriod[]
+}
+
+type ReportHashPayload = Omit<ComplianceReportPacket, 'reportHash'>
+
+interface RunStats {
+  processed: number
+  failed: number
+  callbackFailed: number
+  requested: number
+}
+
+interface ScanBounds {
+  fromBlock: bigint
+  toBlock: bigint
 }
 
 const getSecretValue = (runtime: Runtime<Config>, id: string): string => {
@@ -216,7 +299,7 @@ const decodeReasonCode = (value: `0x${string}`): ComplianceReportPeriod['reasonC
   try {
     const decoded = hexToString(value, { size: 32 }).replace(/\u0000/g, '').trim().toUpperCase()
     if (!decoded) return 'OK'
-    if (reasonCodes.has(decoded)) {
+    if (REASON_CODES.has(decoded)) {
       return decoded as ComplianceReportPeriod['reasonCode']
     }
     return 'UNKNOWN'
@@ -226,8 +309,8 @@ const decodeReasonCode = (value: `0x${string}`): ComplianceReportPeriod['reasonC
 }
 
 const withinDateWindow = (periodStart: bigint, periodEnd: bigint, startDate: string, endDate: string): boolean => {
-  const startSec = BigInt(Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000))
-  const endSec = BigInt(Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000))
+  const startSec = dateToStartSeconds(startDate)
+  const endSec = dateToEndSeconds(endDate)
   return !(periodEnd < startSec || periodStart > endSec)
 }
 
@@ -251,11 +334,131 @@ const computeMerkleRoot = (periodIds: `0x${string}`[]): `0x${string}` => {
   return level[0]
 }
 
+const computeScanBounds = (
+  latestBlock: bigint,
+  deployBlock: bigint,
+  lookbackBlocks: bigint,
+  minConfirmations: number,
+): ScanBounds => {
+  const confirmations = BigInt(minConfirmations)
+  const safeHead = latestBlock > confirmations ? latestBlock - confirmations : 0n
+  const lookbackFloor = safeHead >= lookbackBlocks - 1n ? safeHead - lookbackBlocks + 1n : 0n
+  const fromBlock = lookbackFloor > deployBlock ? lookbackFloor : deployBlock
+
+  return {
+    fromBlock,
+    toBlock: safeHead,
+  }
+}
+
+const getDeterministicGeneratedAt = (periods: ComplianceReportPeriod[], endDate: string): string => {
+  if (periods.length === 0) {
+    return dateToEndIso(endDate)
+  }
+
+  let latest = periods[0].generatedAt
+  for (const period of periods) {
+    if (period.generatedAt > latest) {
+      latest = period.generatedAt
+    }
+  }
+  return latest
+}
+
+const computeReportHash = (payloadForHash: ReportHashPayload): `0x${string}` => {
+  return keccak256(stringToHex(JSON.stringify(payloadForHash)))
+}
+
+const formatZodIssues = (error: z.ZodError): string => {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'root'
+      return `${path}: ${issue.message}`
+    })
+    .join('; ')
+}
+
+const extractFallbackRequestId = (record: unknown): string => {
+  if (!record || typeof record !== 'object') return ''
+  const requestId = (record as Record<string, unknown>).requestId
+  return typeof requestId === 'string' ? requestId : ''
+}
+
+const getUrlProtocol = (url: string): string => {
+  const normalized = url.trim().toLowerCase()
+  if (normalized.startsWith('https://')) return 'https:'
+  if (normalized.startsWith('http://')) return 'http:'
+  throw new Error(`Invalid backendBaseUrl: ${url}`)
+}
+
+const validateRuntimeConfig = (runtime: Runtime<Config>): void => {
+  const protocol = getUrlProtocol(runtime.config.backendBaseUrl)
+  if (protocol !== 'https:') {
+    if (runtime.config.isTestnet) {
+      runtime.log(`WARNING: backendBaseUrl is not HTTPS: ${runtime.config.backendBaseUrl}`)
+    } else {
+      throw new Error(`backendBaseUrl must use HTTPS in production: ${runtime.config.backendBaseUrl}`)
+    }
+  }
+
+  if (!runtime.config.isTestnet && runtime.config.revenueRegistryAddress.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error('revenueRegistryAddress must not be zero on non-testnet deployments')
+  }
+}
+
+const getScanLookbackBlocks = (runtime: Runtime<Config>): bigint => {
+  return runtime.config.scanLookbackBlocks ?? DEFAULT_SCAN_LOOKBACK_BLOCKS
+}
+
+const getMinConfirmations = (runtime: Runtime<Config>): number => {
+  return runtime.config.minConfirmations ?? DEFAULT_MIN_CONFIRMATIONS
+}
+
+const getResultPostMaxAttempts = (runtime: Runtime<Config>): number => {
+  return runtime.config.resultPostMaxAttempts ?? DEFAULT_RESULT_POST_MAX_ATTEMPTS
+}
+
+const postResultWithRetry = (
+  runtime: Runtime<Config>,
+  backendToken: string,
+  body: Record<string, unknown>,
+): void => {
+  let lastError: Error | null = null
+  const maxAttempts = getResultPostMaxAttempts(runtime)
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      sendJson(runtime, {
+        url: `${runtime.config.backendBaseUrl}${runtime.config.resultPath}`,
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${backendToken}`,
+        },
+        body,
+      })
+
+      if (attempt > 1) {
+        runtime.log(`Result callback succeeded on retry attempt ${attempt}`)
+      }
+      return
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      lastError = new Error(message)
+      runtime.log(`Result callback attempt ${attempt}/${maxAttempts} failed: ${message}`)
+    }
+  }
+
+  throw new Error(`Result callback failed after ${maxAttempts} attempts: ${lastError?.message}`)
+}
+
 const filterPeriodRecordedLogs = (
   runtime: Runtime<Config>,
   evmClient: EVMClient,
   fromBlock: bigint,
   toBlock: bigint,
+  merchantIdHash: `0x${string}`,
 ) => {
   const logs: Array<{
     removed: boolean
@@ -269,21 +472,44 @@ const filterPeriodRecordedLogs = (
     return logs
   }
 
+  const eventOnlyTopics = [{ topic: [hexToBase64(PERIOD_RECORDED_TOPIC0)] }]
+  const eventAndMerchantTopics = [
+    { topic: [hexToBase64(PERIOD_RECORDED_TOPIC0)] },
+    { topic: [] },
+    { topic: [hexToBase64(merchantIdHash)] },
+  ]
+
+  let useMerchantTopicFilter = true
   let cursor = fromBlock
+
   while (cursor <= toBlock) {
     const chunkToBlock = cursor + (MAX_FILTER_LOG_RANGE_BLOCKS - 1n)
     const chunkEnd = chunkToBlock < toBlock ? chunkToBlock : toBlock
 
-    const response = evmClient
-      .filterLogs(runtime, {
-        filterQuery: {
-          fromBlock: toValuesBigIntJson(cursor),
-          toBlock: toValuesBigIntJson(chunkEnd),
-          addresses: [hexToBase64(runtime.config.revenueRegistryAddress)],
-          topics: [{ topic: [hexToBase64(PERIOD_RECORDED_TOPIC0)] }],
-        },
-      })
-      .result()
+    const runFilter = (topics: Array<{ topic: string[] }>) =>
+      evmClient
+        .filterLogs(runtime, {
+          filterQuery: {
+            fromBlock: toValuesBigIntJson(cursor),
+            toBlock: toValuesBigIntJson(chunkEnd),
+            addresses: [hexToBase64(runtime.config.revenueRegistryAddress)],
+            topics,
+          },
+        })
+        .result()
+
+    let response
+    if (useMerchantTopicFilter) {
+      try {
+        response = runFilter(eventAndMerchantTopics)
+      } catch {
+        useMerchantTopicFilter = false
+        runtime.log(`Topic-level merchant filter unavailable, falling back (${TOPIC_FILTER_FALLBACK_ERROR})`)
+        response = runFilter(eventOnlyTopics)
+      }
+    } else {
+      response = runFilter(eventOnlyTopics)
+    }
 
     logs.push(...(response.logs ?? []))
     cursor = chunkEnd + 1n
@@ -299,10 +525,26 @@ const buildReportForRecord = (
 ): ComplianceReportPacket => {
   const latestHeader = evmClient.headerByNumber(runtime, {}).result().header
   const latestBlock = parseValuesBigInt((latestHeader?.blockNumber as ValuesBigInt | undefined) ?? undefined)
-  const fromBlock = runtime.config.revenueRegistryDeployBlock
-  const toBlock = latestBlock > fromBlock ? latestBlock : fromBlock
+  const scanBounds = computeScanBounds(
+    latestBlock,
+    runtime.config.revenueRegistryDeployBlock,
+    getScanLookbackBlocks(runtime),
+    getMinConfirmations(runtime),
+  )
 
-  const logs = filterPeriodRecordedLogs(runtime, evmClient, fromBlock, toBlock)
+  runtime.log(
+    `Scanning compliance logs for request=${record.requestId} merchant=${record.merchantIdHash.toLowerCase()} fromBlock=${scanBounds.fromBlock} toBlock=${scanBounds.toBlock}`,
+  )
+
+  const logs = filterPeriodRecordedLogs(
+    runtime,
+    evmClient,
+    scanBounds.fromBlock,
+    scanBounds.toBlock,
+    record.merchantIdHash.toLowerCase() as `0x${string}`,
+  )
+
+  runtime.log(`Scan complete request=${record.requestId} totalLogs=${logs.length}`)
 
   const periodLogMap = new Map<
     `0x${string}`,
@@ -338,6 +580,8 @@ const buildReportForRecord = (
       merchantIdHash,
     })
   }
+
+  runtime.log(`Matched period logs request=${record.requestId} uniquePeriods=${periodLogMap.size}`)
 
   const periods: ComplianceReportPeriod[] = []
   for (const [periodId, logMeta] of periodLogMap.entries()) {
@@ -449,15 +693,15 @@ const buildReportForRecord = (
 
   const periodMerkleRoot = computeMerkleRoot(periods.map((period) => period.periodId))
 
-  const payloadForHash = {
-    generatedAt: runtime.now().toISOString(),
+  const payloadForHash: ReportHashPayload = {
+    generatedAt: getDeterministicGeneratedAt(periods, record.endDate),
     merchantIdHash: record.merchantIdHash.toLowerCase(),
     startDate: record.startDate,
     endDate: record.endDate,
     chainSelectorName: runtime.config.chainSelectorName,
     revenueRegistryAddress: runtime.config.revenueRegistryAddress,
-    scanFromBlock: fromBlock.toString(),
-    scanToBlock: toBlock.toString(),
+    scanFromBlock: scanBounds.fromBlock.toString(),
+    scanToBlock: scanBounds.toBlock.toString(),
     periodMerkleRoot,
     totals: {
       periodCount: totals.periodCount,
@@ -473,7 +717,7 @@ const buildReportForRecord = (
     periods,
   }
 
-  const reportHash = keccak256(stringToHex(JSON.stringify(payloadForHash)))
+  const reportHash = computeReportHash(payloadForHash)
 
   return {
     ...payloadForHash,
@@ -482,11 +726,13 @@ const buildReportForRecord = (
 }
 
 const onCronTrigger = (runtime: Runtime<Config>, _payload: CronPayload): string => {
+  validateRuntimeConfig(runtime)
+
   const backendToken =
     runtime.config.backendInternalToken?.trim() ||
     getSecretValue(runtime, 'BACKEND_INTERNAL_TOKEN')
 
-  const ready = sendJson<ReadyResponse>(runtime, {
+  const readyRaw = sendJson<unknown>(runtime, {
     url: `${runtime.config.backendBaseUrl}${runtime.config.readyPath}?limit=${runtime.config.maxBatch}`,
     method: 'GET',
     headers: {
@@ -495,9 +741,22 @@ const onCronTrigger = (runtime: Runtime<Config>, _payload: CronPayload): string 
     },
   })
 
-  if (!ready.records || ready.records.length === 0) {
+  const readyParsed = ReadyResponseSchema.safeParse(readyRaw)
+  if (!readyParsed.success) {
+    throw new Error(`Invalid ready response: ${formatZodIssues(readyParsed.error)}`)
+  }
+
+  const stats: RunStats = {
+    processed: 0,
+    failed: 0,
+    callbackFailed: 0,
+    requested: readyParsed.data.records.length,
+  }
+
+  if (stats.requested === 0) {
     runtime.log('No pending compliance report requests')
-    return JSON.stringify({ processed: 0, requested: 0 })
+    runtime.log(`Compliance export stats: ${JSON.stringify(stats)}`)
+    return JSON.stringify(stats)
   }
 
   const network = getNetwork({
@@ -511,60 +770,86 @@ const onCronTrigger = (runtime: Runtime<Config>, _payload: CronPayload): string 
   }
 
   const evmClient = new EVMClient(network.chainSelector.selector)
-  let processed = 0
-  let failed = 0
 
-  for (const record of ready.records) {
+  for (const rawRecord of readyParsed.data.records) {
+    const parsedRecord = ReadyRecordSchema.safeParse(rawRecord)
+    if (!parsedRecord.success) {
+      const requestId = extractFallbackRequestId(rawRecord)
+      const errorMessage = formatZodIssues(parsedRecord.error)
+      stats.failed += 1
+      runtime.log(`Invalid compliance ready record requestId=${requestId || '<unknown>'}: ${errorMessage}`)
+
+      try {
+        postResultWithRetry(runtime, backendToken, {
+          requestId,
+          outcome: 'RETRYABLE',
+          errorCode: 'INVALID_READY_RECORD',
+          errorMessage,
+        })
+      } catch (callbackError) {
+        stats.callbackFailed += 1
+        const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError)
+        runtime.log(
+          `Failed to report invalid-record result requestId=${requestId || '<unknown>'}: ${callbackMessage}`,
+        )
+      }
+      continue
+    }
+
+    const record = parsedRecord.data
+
     try {
       const report = buildReportForRecord(runtime, evmClient, record)
 
-      sendJson(runtime, {
-        url: `${runtime.config.backendBaseUrl}${runtime.config.resultPath}`,
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${backendToken}`,
-        },
-        body: {
+      try {
+        postResultWithRetry(runtime, backendToken, {
           requestId: record.requestId,
           outcome: 'SUCCESS',
           report,
-        },
-      })
-
-      runtime.log(
-        `Compliance report generated for ${record.requestId}: periods=${report.totals.periodCount}, hash=${report.reportHash}`,
-      )
-      processed += 1
+        })
+        runtime.log(
+          `Compliance report generated for ${record.requestId}: periods=${report.totals.periodCount}, hash=${report.reportHash}`,
+        )
+        stats.processed += 1
+      } catch (callbackError) {
+        stats.callbackFailed += 1
+        stats.failed += 1
+        const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError)
+        runtime.log(`Compliance callback failed after report generation for ${record.requestId}: ${callbackMessage}`)
+      }
     } catch (error) {
-      failed += 1
+      stats.failed += 1
       const errorMessage = error instanceof Error ? error.message : String(error)
       runtime.log(`Compliance report failed for ${record.requestId}: ${errorMessage}`)
 
-      sendJson(runtime, {
-        url: `${runtime.config.backendBaseUrl}${runtime.config.resultPath}`,
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${backendToken}`,
-        },
-        body: {
+      try {
+        postResultWithRetry(runtime, backendToken, {
           requestId: record.requestId,
           outcome: 'RETRYABLE',
           errorCode: 'WORKFLOW_EXCEPTION',
           errorMessage,
-        },
-      })
+        })
+      } catch (callbackError) {
+        stats.callbackFailed += 1
+        const callbackMessage = callbackError instanceof Error ? callbackError.message : String(callbackError)
+        runtime.log(`Failed to report retryable result for ${record.requestId}: ${callbackMessage}`)
+      }
     }
   }
 
-  return JSON.stringify({
-    processed,
-    failed,
-    requested: ready.records.length,
-  })
+  runtime.log(`Compliance export stats: ${JSON.stringify(stats)}`)
+  return JSON.stringify(stats)
+}
+
+export const __test__ = {
+  ReadyRecordSchema,
+  computeReportHash,
+  computeScanBounds,
+  decodeReasonCode,
+  getUrlProtocol,
+  getDeterministicGeneratedAt,
+  isValidDateOnly,
+  withinDateWindow,
 }
 
 export async function main() {

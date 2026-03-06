@@ -37,7 +37,7 @@ contract OracleCoordinator is AccessControl, Pausable, IOracleCoordinator {
     error WorkflowNameRequiresAuthorValidation();
     error UnknownBatch(uint256 batchId);
     error MerchantMismatch(bytes32 received, bytes32 expected);
-    error ProductMismatch(bytes32 received, bytes32 expected);
+    error CategoryNotTokenized(bytes32 categoryIdHash);
     error BatchHashMismatch(bytes32 received, bytes32 expected);
 
     constructor(address revenueRegistry_, address settlementVault_, address admin_, address oracle_, address forwarder_) {
@@ -151,16 +151,16 @@ contract OracleCoordinator is AccessControl, Pausable, IOracleCoordinator {
         _validateReportAgainstBatch(report, batchId);
         revenueRegistry.recordPeriod(report);
 
-        uint256 unitsSettled = 0;
+        uint256 amountSettled = 0;
         bool verified = report.status == InventoryTypes.PeriodStatus.VERIFIED;
         if (!verified) {
             revenueRegistry.setStatus(report.periodId, InventoryTypes.PeriodStatus.UNVERIFIED);
         }
-        if (verified && report.netUnitsSold > 0) {
-            unitsSettled = settlementVault.settleUnits(report.periodId, batchId, report.netUnitsSold);
+        if (verified && report.netSales > 0) {
+            amountSettled = settlementVault.settleCategoryRevenue(report.periodId, batchId, report.productIdHash, report.netSales);
         }
 
-        emit PeriodProcessed(report.periodId, batchId, verified, unitsSettled);
+        emit PeriodProcessed(report.periodId, batchId, verified, amountSettled);
     }
 
     function _validateReportAgainstBatch(InventoryTypes.PeriodReport memory report, uint256 batchId) internal view {
@@ -171,8 +171,8 @@ contract OracleCoordinator is AccessControl, Pausable, IOracleCoordinator {
             revert MerchantMismatch(report.merchantIdHash, batch.merchantIdHash);
         }
 
-        if (report.productIdHash != batch.productIdHash) {
-            revert ProductMismatch(report.productIdHash, batch.productIdHash);
+        if (!IProductBatchFactory(settlementVault.factory()).isCategoryTokenized(batchId, report.productIdHash)) {
+            revert CategoryNotTokenized(report.productIdHash);
         }
 
         bytes32 expectedBatchHash = keccak256(abi.encode(batchId));

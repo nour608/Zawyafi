@@ -7,6 +7,8 @@ Cron-driven CRE workflow that:
 3. Writes report onchain to `KycOracleReceiver`
 4. Calls `POST /internal/kyc/onchain-result` with success/retryable outcome
 
+See `WORKFLOW_OVERVIEW.md` for architecture and end-to-end flow details.
+
 ## Config
 
 - `schedule`

@@ -32,9 +32,10 @@ contract Compliance is ICompliance, Ownable {
         override
         returns (bool)
     {
-        // Minting: only 'to' needs to be verified
+        // Minting: receiver must be active and compliant.
         if (from == address(0)) {
-            return to == address(0) || identityRegistry.isVerified(to);
+            return to != address(0) && identityRegistry.isVerified(to) && !identityRegistry.isFreezed(to)
+                && !identityRegistry.isBlacklisted(to);
         }
 
         // Burning: only 'from' needs to be verified

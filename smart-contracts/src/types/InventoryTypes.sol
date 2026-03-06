@@ -7,20 +7,37 @@ library InventoryTypes {
         VERIFIED
     }
 
+    struct CategoryConfigInput {
+        bytes32 categoryIdHash;
+        uint256 unitsForSale;
+        uint256 unitCost;
+    }
+
+    struct CategoryState {
+        bytes32 categoryIdHash;
+        uint256 unitsForSale;
+        uint256 unitsSold;
+        uint256 unitCost;
+        uint256 principalSold;
+        bool tokenized;
+    }
+
     struct Batch {
         uint256 id;
         bytes32 merchantIdHash;
-        bytes32 productIdHash;
         address issuer;
         address founder;
         address purchaseToken;
         address unitToken;
-        uint256 unitCost;
-        uint256 unitPayout;
-        uint256 unitsForSale;
-        uint256 unitsSoldToInvestors;
-        uint256 fundsRaised;
+        uint16 profitBps;
+        uint256 principalSoldTotal;
+        uint256 targetPayoutTotal;
+        uint256 settledRevenueTotal;
+        uint256 totalUnitsForSale;
+        uint256 totalUnitsSold;
+        uint256 proceedsWithdrawn;
         bool active;
+        bool closed;
     }
 
     struct PeriodReport {

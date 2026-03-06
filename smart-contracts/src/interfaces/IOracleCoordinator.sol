@@ -5,7 +5,7 @@ import {InventoryTypes} from "../types/InventoryTypes.sol";
 import {IReceiver} from "./IReceiver.sol";
 
 interface IOracleCoordinator is IReceiver {
-    event PeriodProcessed(bytes32 indexed periodId, uint256 indexed batchId, bool verified, uint256 unitsSettled);
+    event PeriodProcessed(bytes32 indexed periodId, uint256 indexed batchId, bool verified, uint256 amountSettled);
     event ForwarderAddressUpdated(address indexed previousForwarder, address indexed newForwarder);
     event ExpectedAuthorUpdated(address indexed previousAuthor, address indexed newAuthor);
     event ExpectedWorkflowNameUpdated(bytes10 indexed previousName, bytes10 indexed newName);

@@ -96,6 +96,42 @@ contract KycOracleReceiverTest is Test {
         receiver.onReport(metadata, report);
     }
 
+    function test_MetadataValidation_RevertsOnInvalidMetadataLength() public {
+        receiver.setExpectedAuthor(workflowOwner);
+
+        bytes32 requestIdHash = keccak256("request-invalid-metadata");
+        bytes memory report = abi.encode(requestIdHash, wallet, uint64(block.timestamp));
+
+        vm.expectRevert(KycOracleReceiver.InvalidMetadata.selector);
+        vm.prank(forwarder);
+        receiver.onReport(hex"0102", report);
+    }
+
+    function test_MetadataValidation_AllowsMatchingAuthorAndWorkflowName() public {
+        receiver.setExpectedAuthor(workflowOwner);
+        receiver.setExpectedWorkflowName("ZawyafiKYCWorkflow");
+
+        bytes10 expectedName = receiver.getExpectedWorkflowName();
+        bytes32 requestIdHash = keccak256("request-valid-metadata");
+        bytes memory report = abi.encode(requestIdHash, wallet, uint64(block.timestamp));
+        bytes memory metadata = _buildMetadata(bytes32("workflow-id"), expectedName, workflowOwner);
+
+        vm.prank(forwarder);
+        receiver.onReport(metadata, report);
+
+        assertTrue(identityRegistry.isVerified(wallet));
+        assertTrue(receiver.processedRequestIds(requestIdHash));
+    }
+
+    function test_OnReportRevertsForZeroWallet() public {
+        bytes32 requestIdHash = keccak256("request-zero-wallet");
+        bytes memory report = abi.encode(requestIdHash, address(0), uint64(block.timestamp));
+
+        vm.expectRevert(abi.encodeWithSelector(KycOracleReceiver.InvalidWallet.selector, address(0)));
+        vm.prank(forwarder);
+        receiver.onReport("", report);
+    }
+
     function test_SupportsInterfaceForReceiverAndERC165() public view {
         assertTrue(receiver.supportsInterface(type(IReceiver).interfaceId));
         assertTrue(receiver.supportsInterface(type(IERC165).interfaceId));

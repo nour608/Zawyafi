@@ -30,6 +30,7 @@ contract KycOracleReceiver is AccessControl, Pausable, IReceiver {
     error InvalidWorkflowName(bytes10 received, bytes10 expected);
     error WorkflowNameRequiresAuthorValidation();
     error DuplicateRequest(bytes32 requestIdHash);
+    error InvalidWallet(address wallet);
 
     event KycProcessed(bytes32 indexed requestIdHash, address indexed wallet, bool alreadyVerified, uint64 approvedAt);
     event ForwarderAddressUpdated(address indexed previousForwarder, address indexed newForwarder);
@@ -81,6 +82,9 @@ contract KycOracleReceiver is AccessControl, Pausable, IReceiver {
         }
 
         (bytes32 requestIdHash, address wallet, uint64 approvedAt) = abi.decode(report, (bytes32, address, uint64));
+        if (wallet == address(0)) {
+            revert InvalidWallet(wallet);
+        }
 
         if (processedRequestIds[requestIdHash]) {
             revert DuplicateRequest(requestIdHash);

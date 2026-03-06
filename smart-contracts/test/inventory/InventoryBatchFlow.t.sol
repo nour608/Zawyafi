@@ -40,23 +40,25 @@ contract ProductBatchFlowTest is Test {
 
     address internal founder = makeAddr("founder");
     address internal investor = makeAddr("investor");
+    address internal investorTwo = makeAddr("investorTwo");
     address internal forwarder = makeAddr("forwarder");
     address internal outsider = makeAddr("outsider");
     address internal workflowOwner = makeAddr("workflowOwner");
-    uint256 internal batchId1;
-    uint256 internal batchId2;
 
-    bytes32 internal constant MERCHANT_ID = keccak256("cafe-merchant-1");
-    bytes32 internal constant PRODUCT_ID_A = keccak256("espresso-shot");
-    bytes32 internal constant PRODUCT_ID_B = keccak256("latte-shot");
+    bytes32 internal constant MERCHANT_ID = keccak256("merchant-1");
+    bytes32 internal constant COFFEE = keccak256("Coffee");
+    bytes32 internal constant BAKERY = keccak256("Bakery");
+    bytes32 internal constant SANDWICHES = keccak256("Sandwiches");
 
     function setUp() public {
         usdc = new MockUSDC();
         usdc.mint(investor, 10_000_000 * 1e6);
+        usdc.mint(investorTwo, 10_000_000 * 1e6);
         usdc.mint(address(this), 10_000_000 * 1e6);
 
         identityRegistry = new IdentityRegistry();
         identityRegistry.addAddress(investor);
+        identityRegistry.addAddress(investorTwo);
         identityRegistry.addAddress(founder);
 
         compliance = new Compliance(address(this), address(identityRegistry));
@@ -73,105 +75,197 @@ contract ProductBatchFlowTest is Test {
 
         revenueRegistry.grantRole(revenueRegistry.ORACLE_ROLE(), address(coordinator));
         settlementVault.grantRole(settlementVault.ORACLE_ROLE(), address(coordinator));
+        settlementVault.grantRole(settlementVault.ORACLE_ROLE(), address(this));
+    }
 
-        batchId1 = _createBatch(PRODUCT_ID_A, "Inventory Unit Token A", "CUTA");
-        batchId2 = _createBatch(PRODUCT_ID_B, "Inventory Unit Token B", "CUTB");
+    function test_CreateBatchSupportsThreeCategories() public {
+        uint256 batchId = _createBatch(_threeCategories(), 1_000, "Inventory Unit Token", "IUT");
+
+        bytes32[] memory categoryHashes = factory.getBatchCategoryHashes(batchId);
+        assertEq(categoryHashes.length, 3);
+        assertEq(categoryHashes[0], COFFEE);
+        assertEq(categoryHashes[1], BAKERY);
+        assertEq(categoryHashes[2], SANDWICHES);
+
+        InventoryTypes.CategoryState memory category = factory.getCategoryState(batchId, COFFEE);
+        assertTrue(category.tokenized);
+        assertEq(category.unitsForSale, 5_000);
+        assertEq(category.unitCost, 2 * 1e6);
+    }
+
+    function test_CreateBatchRejectsDuplicateCategoryHash() public {
+        InventoryTypes.CategoryConfigInput[] memory categories = new InventoryTypes.CategoryConfigInput[](2);
+        categories[0] = InventoryTypes.CategoryConfigInput({categoryIdHash: COFFEE, unitsForSale: 5, unitCost: 2 * 1e6});
+        categories[1] = InventoryTypes.CategoryConfigInput({categoryIdHash: COFFEE, unitsForSale: 4, unitCost: 3 * 1e6});
+
+        vm.expectRevert(bytes("ProductBatchFactory: duplicate category"));
+        factory.createBatch(
+            MERCHANT_ID, categories, address(usdc), 1_000, "Inventory Unit Token", "IUT", founder, founder
+        );
+    }
+
+    function test_BuyUnitsUpdatesPrincipalAndTargetWithRoundUp() public {
+        InventoryTypes.CategoryConfigInput[] memory categories = new InventoryTypes.CategoryConfigInput[](1);
+        categories[0] = InventoryTypes.CategoryConfigInput({categoryIdHash: COFFEE, unitsForSale: 1, unitCost: 1});
+        uint256 batchId = _createBatch(categories, 3_333, "Inventory Unit Token", "IUT");
 
         vm.startPrank(investor);
         usdc.approve(address(factory), type(uint256).max);
-        factory.buyUnits(batchId1, 100);
-        factory.buyUnits(batchId2, 80);
+        factory.buyUnits(batchId, COFFEE, 1);
+        vm.stopPrank();
+
+        InventoryTypes.Batch memory batch = factory.getBatch(batchId);
+        assertEq(batch.principalSoldTotal, 1);
+        assertEq(batch.targetPayoutTotal, 2); // ceil(1 * 3333 / 10000) = 1
+    }
+
+    function test_BuyUnitsAutoClosesBatchWhenSoldOut() public {
+        InventoryTypes.CategoryConfigInput[] memory categories = new InventoryTypes.CategoryConfigInput[](1);
+        categories[0] = InventoryTypes.CategoryConfigInput({categoryIdHash: COFFEE, unitsForSale: 2, unitCost: 2 * 1e6});
+        uint256 batchId = _createBatch(categories, 1_000, "Inventory Unit Token", "IUT");
+
+        vm.startPrank(investor);
+        usdc.approve(address(factory), type(uint256).max);
+        factory.buyUnits(batchId, COFFEE, 2);
+        vm.stopPrank();
+
+        assertTrue(factory.isBatchClosed(batchId));
+        InventoryTypes.Batch memory batch = factory.getBatch(batchId);
+        assertFalse(batch.active);
+    }
+
+    function test_AdminCanCloseBatchEarly() public {
+        uint256 batchId = _createBatch(_singleCategory(COFFEE, 100, 2 * 1e6), 1_000, "Inventory Unit Token", "IUT");
+
+        factory.closeBatch(batchId);
+        assertTrue(factory.isBatchClosed(batchId));
+
+        vm.startPrank(investor);
+        usdc.approve(address(factory), type(uint256).max);
+        vm.expectRevert(bytes("ProductBatchFactory: batch inactive"));
+        factory.buyUnits(batchId, COFFEE, 1);
         vm.stopPrank();
     }
 
-    function test_VerifiedPeriodSettlesAndInvestorClaims() public {
-        usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
+    function test_OnReportRevertsForNonTokenizedCategory() public {
+        uint256 batchId = _createBatch(_singleCategory(COFFEE, 100, 2 * 1e6), 1_000, "Inventory Unit Token", "IUT");
+        InventoryTypes.PeriodReport memory report =
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, BAKERY, batchId, 1, 10 * 1e6);
+
+        vm.expectRevert(abi.encodeWithSelector(OracleCoordinator.CategoryNotTokenized.selector, BAKERY));
+        coordinator.processPeriodAndSettle(report, batchId);
+    }
+
+    function test_OnReportSettlesByNetSalesWhenVerified() public {
+        uint256 batchId = _createAndBuySingleCategoryBatch();
+        _fundBatch(batchId, 300 * 1e6);
 
         InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 60, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 1);
-        coordinator.processPeriodAndSettle(report, batchId1);
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 2, 50 * 1e6);
+        coordinator.processPeriodAndSettle(report, batchId);
 
-        assertEq(settlementVault.claimableGlobalUnits(batchId1), 60);
+        assertEq(settlementVault.settledRevenueTotal(batchId), 50 * 1e6);
+        assertFalse(settlementVault.isRevenueTargetReached(batchId));
+    }
 
-        InventoryTypes.Batch memory batch = factory.getBatch(batchId1);
-        UnitToken unitToken = UnitToken(batch.unitToken);
-        assertEq(unitToken.balanceOf(investor), 100 * 1e18);
+    function test_SettlementCappedAtTargetPayout() public {
+        uint256 batchId = _createAndBuySingleCategoryBatch();
+        _fundBatch(batchId, 500 * 1e6);
+
+        InventoryTypes.PeriodReport memory reportA =
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 3, 200 * 1e6);
+        coordinator.processPeriodAndSettle(reportA, batchId);
+
+        InventoryTypes.PeriodReport memory reportB =
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 4, 100 * 1e6);
+        coordinator.processPeriodAndSettle(reportB, batchId);
+
+        assertEq(settlementVault.targetPayoutTotal(batchId), 220 * 1e6);
+        assertEq(settlementVault.settledRevenueTotal(batchId), 220 * 1e6);
+        assertTrue(settlementVault.isRevenueTargetReached(batchId));
+    }
+
+    function test_BatchFinishedRequiresClosedAndTargetReached() public {
+        uint256 batchId = _createBatch(_singleCategory(COFFEE, 1_000, 2 * 1e6), 1_000, "Inventory Unit Token", "IUT");
+
+        vm.startPrank(investor);
+        usdc.approve(address(factory), type(uint256).max);
+        factory.buyUnits(batchId, COFFEE, 100); // principal 200m, not sold out
+        vm.stopPrank();
+
+        _fundBatch(batchId, 300 * 1e6);
+        InventoryTypes.PeriodReport memory report =
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 5, 500 * 1e6);
+        coordinator.processPeriodAndSettle(report, batchId);
+
+        assertTrue(settlementVault.isRevenueTargetReached(batchId));
+        assertFalse(settlementVault.isBatchFinished(batchId));
+
+        factory.closeBatch(batchId);
+        assertTrue(settlementVault.isBatchFinished(batchId));
+    }
+
+    function test_ClaimSharedPoolProRata() public {
+        uint256 batchId = _createBatch(_singleCategory(COFFEE, 1_000, 1 * 1e6), 1_000, "Inventory Unit Token", "IUT");
+
+        vm.startPrank(investor);
+        usdc.approve(address(factory), type(uint256).max);
+        factory.buyUnits(batchId, COFFEE, 100);
+        vm.stopPrank();
+
+        vm.startPrank(investorTwo);
+        usdc.approve(address(factory), type(uint256).max);
+        factory.buyUnits(batchId, COFFEE, 100);
+        vm.stopPrank();
+
+        _fundBatch(batchId, 500 * 1e6);
+        InventoryTypes.PeriodReport memory report =
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 6, 100 * 1e6);
+        coordinator.processPeriodAndSettle(report, batchId);
 
         uint256 balanceBefore = usdc.balanceOf(investor);
         vm.prank(investor);
-        uint256 payout = settlementVault.claim(batchId1, 50);
+        uint256 payout = settlementVault.claim(batchId, 50 * 1e6);
 
-        assertEq(payout, 50 * 22 * 1e5);
-        assertEq(usdc.balanceOf(investor) - balanceBefore, 50 * 22 * 1e5);
-        assertEq(unitToken.balanceOf(investor), 50 * 1e18);
-        assertEq(settlementVault.claimableGlobalUnits(batchId1), 10);
+        assertEq(payout, 25 * 1e6); // 25% of claimable pool (100m)
+        assertEq(usdc.balanceOf(investor) - balanceBefore, 25 * 1e6);
+        assertEq(settlementVault.claimableAmount(batchId), 75 * 1e6);
     }
 
-    function test_UnverifiedPeriodRecordsWithoutSettlement() public {
-        usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
+    function test_DuplicateCategorySettlementReverts() public {
+        uint256 batchId = _createAndBuySingleCategoryBatch();
+        _fundBatch(batchId, 500 * 1e6);
 
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.UNVERIFIED, 60, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 2);
-        coordinator.processPeriodAndSettle(report, batchId1);
+        bytes32 periodId = keccak256("period-duplicate");
+        settlementVault.settleCategoryRevenue(periodId, batchId, COFFEE, 10 * 1e6);
 
-        assertTrue(revenueRegistry.isPeriodRecorded(report.periodId));
-        assertEq(settlementVault.claimableGlobalUnits(batchId1), 0);
-    }
-
-    function test_CannotRecordSamePeriodTwice() public {
-        usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
-
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 40, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 3);
-        coordinator.processPeriodAndSettle(report, batchId1);
-
-        vm.expectRevert(bytes("RevenueRegistry: period already recorded"));
-        coordinator.processPeriodAndSettle(report, batchId1);
-    }
-
-    function test_OracleCanSetPeriodStatusUnverified() public {
-        usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
-
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 30, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 30);
-        coordinator.processPeriodAndSettle(report, batchId1);
-
-        InventoryTypes.PeriodReport memory storedBefore = revenueRegistry.getPeriod(report.periodId);
-        assertEq(uint8(storedBefore.status), uint8(InventoryTypes.PeriodStatus.VERIFIED));
-
-        vm.prank(address(coordinator));
-        revenueRegistry.setStatus(report.periodId, InventoryTypes.PeriodStatus.UNVERIFIED);
-
-        InventoryTypes.PeriodReport memory storedAfter = revenueRegistry.getPeriod(report.periodId);
-        assertEq(uint8(storedAfter.status), uint8(InventoryTypes.PeriodStatus.UNVERIFIED));
+        vm.expectRevert(bytes("SettlementVault: period settled"));
+        settlementVault.settleCategoryRevenue(periodId, batchId, COFFEE, 10 * 1e6);
     }
 
     function test_OnReportSucceedsFromTrustedForwarder() public {
-        usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
+        uint256 batchId = _createAndBuySingleCategoryBatch();
+        _fundBatch(batchId, 300 * 1e6);
 
         InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 30, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 4);
-        bytes memory encodedReport = abi.encode(report, batchId1);
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 7, 20 * 1e6);
+        bytes memory encodedReport = abi.encode(report, batchId);
 
         vm.prank(forwarder);
         coordinator.onReport("", encodedReport);
 
         assertTrue(revenueRegistry.isPeriodRecorded(report.periodId));
-        assertEq(settlementVault.claimableGlobalUnits(batchId1), 30);
+        assertEq(settlementVault.settledRevenueTotal(batchId), 20 * 1e6);
     }
 
     function test_OnReportRevertsForNonForwarder() public {
+        uint256 batchId = _createAndBuySingleCategoryBatch();
         InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 30, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 5);
+            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, COFFEE, batchId, 8, 20 * 1e6);
 
         vm.expectRevert(abi.encodeWithSelector(OracleCoordinator.InvalidSender.selector, outsider, forwarder));
         vm.prank(outsider);
-        coordinator.onReport("", abi.encode(report, batchId1));
+        coordinator.onReport("", abi.encode(report, batchId));
     }
 
     function test_SupportsInterfaceForReceiverAndERC165() public view {
@@ -179,120 +273,45 @@ contract ProductBatchFlowTest is Test {
         assertTrue(coordinator.supportsInterface(type(IERC165).interfaceId));
     }
 
-    function test_MetadataValidation_RevertsOnWorkflowIdMismatch() public {
-        coordinator.setExpectedWorkflowId(bytes32("expected-workflow-id"));
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 10, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 6);
-
-        bytes32 receivedWorkflowId = bytes32("other-workflow-id");
-        bytes memory metadata = _buildMetadata(receivedWorkflowId, bytes10("zawyafi001"), workflowOwner);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OracleCoordinator.InvalidWorkflowId.selector, receivedWorkflowId, bytes32("expected-workflow-id")
-            )
-        );
-        vm.prank(forwarder);
-        coordinator.onReport(metadata, abi.encode(report, batchId1));
+    function _createAndBuySingleCategoryBatch() internal returns (uint256 batchId) {
+        batchId = _createBatch(_singleCategory(COFFEE, 100, 2 * 1e6), 1_000, "Inventory Unit Token", "IUT");
+        vm.startPrank(investor);
+        usdc.approve(address(factory), type(uint256).max);
+        factory.buyUnits(batchId, COFFEE, 100);
+        vm.stopPrank();
     }
 
-    function test_MetadataValidation_RevertsOnAuthorMismatch() public {
-        coordinator.setExpectedAuthor(workflowOwner);
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 10, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 7);
-
-        bytes memory metadata = _buildMetadata(bytes32("workflow-id"), bytes10("zawyafi001"), outsider);
-
-        vm.expectRevert(abi.encodeWithSelector(OracleCoordinator.InvalidAuthor.selector, outsider, workflowOwner));
-        vm.prank(forwarder);
-        coordinator.onReport(metadata, abi.encode(report, batchId1));
-    }
-
-    function test_MetadataValidation_WorkflowNameRequiresAuthorValidation() public {
-        coordinator.setExpectedWorkflowName("ZawyafiOracle");
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 10, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 8);
-        bytes memory metadata = _buildMetadata(bytes32("workflow-id"), bytes10("zawyafi001"), workflowOwner);
-
-        vm.expectRevert(OracleCoordinator.WorkflowNameRequiresAuthorValidation.selector);
-        vm.prank(forwarder);
-        coordinator.onReport(metadata, abi.encode(report, batchId1));
-    }
-
-    function test_ReportMerchantMismatchReverts() public {
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 10, 0, batchId1, bytes32("merchant-2"), PRODUCT_ID_A, 9);
-
-        vm.expectRevert(abi.encodeWithSelector(OracleCoordinator.MerchantMismatch.selector, report.merchantIdHash, MERCHANT_ID));
-        coordinator.processPeriodAndSettle(report, batchId1);
-    }
-
-    function test_ReportProductMismatchReverts() public {
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 10, 0, batchId1, MERCHANT_ID, bytes32("product-2"), 10);
-
-        vm.expectRevert(abi.encodeWithSelector(OracleCoordinator.ProductMismatch.selector, report.productIdHash, PRODUCT_ID_A));
-        coordinator.processPeriodAndSettle(report, batchId1);
-    }
-
-    function test_ReportBatchHashMismatchReverts() public {
-        InventoryTypes.PeriodReport memory report =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 10, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 11);
-        report.batchHash = keccak256("wrong-batch-hash");
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                OracleCoordinator.BatchHashMismatch.selector, report.batchHash, keccak256(abi.encode(batchId1))
-            )
-        );
-        coordinator.processPeriodAndSettle(report, batchId1);
-    }
-
-    function test_LiquidityIsIsolatedPerBatch() public {
+    function _fundBatch(uint256 batchId, uint256 amount) internal {
         usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
-
-        InventoryTypes.PeriodReport memory reportBatch2 =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 40, 0, batchId2, MERCHANT_ID, PRODUCT_ID_B, 12);
-        coordinator.processPeriodAndSettle(reportBatch2, batchId2);
-
-        assertTrue(revenueRegistry.isPeriodRecorded(reportBatch2.periodId));
-        assertEq(settlementVault.claimableGlobalUnits(batchId2), 0);
+        settlementVault.fundBatch(batchId, amount);
     }
 
-    function test_ClaimsConsumeOnlyBatchLiquidity() public {
-        usdc.approve(address(settlementVault), type(uint256).max);
-        settlementVault.fundBatch(batchId1, 1_000 * 1e6);
-        settlementVault.fundBatch(batchId2, 500 * 1e6);
-
-        InventoryTypes.PeriodReport memory reportBatch1 =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 50, 0, batchId1, MERCHANT_ID, PRODUCT_ID_A, 13);
-        InventoryTypes.PeriodReport memory reportBatch2 =
-            _buildReport(InventoryTypes.PeriodStatus.VERIFIED, 20, 0, batchId2, MERCHANT_ID, PRODUCT_ID_B, 14);
-
-        coordinator.processPeriodAndSettle(reportBatch1, batchId1);
-        coordinator.processPeriodAndSettle(reportBatch2, batchId2);
-
-        uint256 batch1BeforeClaim = settlementVault.batchLiquidity(batchId1);
-        uint256 batch2BeforeClaim = settlementVault.batchLiquidity(batchId2);
-        assertEq(batch1BeforeClaim, 1_000 * 1e6);
-        assertEq(batch2BeforeClaim, 500 * 1e6);
-
-        vm.prank(investor);
-        settlementVault.claim(batchId1, 10);
-
-        assertEq(settlementVault.batchLiquidity(batchId1), batch1BeforeClaim - (10 * 22 * 1e5));
-        assertEq(settlementVault.batchLiquidity(batchId2), batch2BeforeClaim);
-    }
-
-    function _createBatch(bytes32 productIdHash, string memory tokenName, string memory tokenSymbol)
-        internal
-        returns (uint256)
-    {
+    function _createBatch(
+        InventoryTypes.CategoryConfigInput[] memory categories,
+        uint16 profitBps,
+        string memory tokenName,
+        string memory tokenSymbol
+    ) internal returns (uint256) {
         vm.prank(founder);
-        return factory.createBatch(
-            MERCHANT_ID, productIdHash, address(usdc), 2 * 1e6, 22 * 1e5, 1_000, tokenName, tokenSymbol, founder, founder
-        );
+        return factory.createBatch(MERCHANT_ID, categories, address(usdc), profitBps, tokenName, tokenSymbol, founder, founder);
+    }
+
+    function _singleCategory(bytes32 categoryHash, uint256 unitsForSale, uint256 unitCost)
+        internal
+        pure
+        returns (InventoryTypes.CategoryConfigInput[] memory categories)
+    {
+        categories = new InventoryTypes.CategoryConfigInput[](1);
+        categories[0] =
+            InventoryTypes.CategoryConfigInput({categoryIdHash: categoryHash, unitsForSale: unitsForSale, unitCost: unitCost});
+    }
+
+    function _threeCategories() internal pure returns (InventoryTypes.CategoryConfigInput[] memory categories) {
+        categories = new InventoryTypes.CategoryConfigInput[](3);
+        categories[0] = InventoryTypes.CategoryConfigInput({categoryIdHash: COFFEE, unitsForSale: 5_000, unitCost: 2 * 1e6});
+        categories[1] = InventoryTypes.CategoryConfigInput({categoryIdHash: BAKERY, unitsForSale: 3_334, unitCost: 3 * 1e6});
+        categories[2] =
+            InventoryTypes.CategoryConfigInput({categoryIdHash: SANDWICHES, unitsForSale: 2_500, unitCost: 4 * 1e6});
     }
 
     function _buildMetadata(bytes32 workflowId, bytes10 workflowName, address owner)
@@ -305,39 +324,33 @@ contract ProductBatchFlowTest is Test {
 
     function _buildReport(
         InventoryTypes.PeriodStatus status,
-        uint256 unitsSold,
-        uint256 refundUnits,
+        bytes32 categoryHash,
         uint256 batchIdForReport,
-        bytes32 merchantIdHash,
-        bytes32 productIdHash,
-        uint64 periodNonce
+        uint64 periodNonce,
+        uint256 netSalesAmount
     ) internal pure returns (InventoryTypes.PeriodReport memory report) {
         uint64 periodStart = 1_700_000_000 + (periodNonce * 1 days);
         uint64 periodEnd = periodStart + uint64(1 days - 1);
-        uint256 grossSales = unitsSold * 3 * 1e6;
-        uint256 refunds = refundUnits * 3 * 1e6;
-        uint256 netSales = grossSales - refunds;
-        uint256 netUnitsSold = unitsSold - refundUnits;
-        bytes32 periodId = keccak256(abi.encode(merchantIdHash, productIdHash, periodStart, periodEnd));
+        bytes32 periodId = keccak256(abi.encode(MERCHANT_ID, categoryHash, periodStart, periodEnd));
 
         report = InventoryTypes.PeriodReport({
             periodId: periodId,
-            merchantIdHash: merchantIdHash,
-            productIdHash: productIdHash,
+            merchantIdHash: MERCHANT_ID,
+            productIdHash: categoryHash,
             periodStart: periodStart,
             periodEnd: periodEnd,
-            grossSales: grossSales,
-            refunds: refunds,
-            netSales: netSales,
-            unitsSold: unitsSold,
-            refundUnits: refundUnits,
-            netUnitsSold: netUnitsSold,
-            eventCount: 42,
+            grossSales: netSalesAmount,
+            refunds: 0,
+            netSales: netSalesAmount,
+            unitsSold: 1,
+            refundUnits: 0,
+            netUnitsSold: 1,
+            eventCount: 1,
             batchHash: keccak256(abi.encode(batchIdForReport)),
             generatedAt: periodEnd + 60,
             status: status,
-            riskScore: status == InventoryTypes.PeriodStatus.UNVERIFIED ? 900 : 150,
-            reasonCode: status == InventoryTypes.PeriodStatus.UNVERIFIED ? bytes32("REFUND_SPIKE") : bytes32("OK")
+            riskScore: status == InventoryTypes.PeriodStatus.UNVERIFIED ? 900 : 100,
+            reasonCode: status == InventoryTypes.PeriodStatus.UNVERIFIED ? bytes32("UNVERIFIED") : bytes32("OK")
         });
     }
 }

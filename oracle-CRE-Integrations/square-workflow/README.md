@@ -1,6 +1,6 @@
 # Square Revenue Workflow (CRE)
 
-This workflow fetches Square daily revenue for a single category and submits a signed report to `OracleCoordinator` via CRE `writeReport`.
+This workflow fetches Square daily revenue for all detected categories, filters to tokenized categories onchain for a given batch, and submits signed reports to `OracleCoordinator` via CRE `writeReport`.
 
 ## Config
 
@@ -11,12 +11,12 @@ Required fields in `config.staging.json` / `config.production.json`:
 - `squareVersion`
 - `locationId`
 - `merchantId`
-- `category`
 - `batchId`
 - `oracleCoordinatorAddress`
 - `chainSelectorName`
 - `isTestnet`
 - `gasLimit`
+- `minEventCountForWrite`
 
 ## Secrets
 

@@ -1,25 +1,31 @@
 import {
   bytesToHex,
   ConfidentialHTTPClient,
-  ConsensusAggregationByFields,
   CronCapability,
   EVMClient,
+  consensusIdenticalAggregation,
   getNetwork,
   handler,
   hexToBase64,
   HTTPClient,
-  identical,
-  median,
   Runner,
   type CronPayload,
   type NodeRuntime,
   type Runtime,
   TxStatus,
 } from '@chainlink/cre-sdk'
-import { encodeAbiParameters, keccak256, parseAbiParameters, stringToBytes, stringToHex } from 'viem'
+import {
+  decodeFunctionResult,
+  encodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
+  parseAbi,
+  parseAbiParameters,
+  stringToBytes,
+  stringToHex,
+} from 'viem'
 import { z } from 'zod'
 
-const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000'
 const VERIFIED_STATUS = 1
 const UNVERIFIED_STATUS = 0
 const REASON_OK = stringToHex('OK', { size: 32 })
@@ -27,13 +33,19 @@ const REASON_REFUND_RATIO = stringToHex('REFUND_RATIO', { size: 32 })
 const REASON_SUDDEN_SPIKE = stringToHex('SUDDEN_SPIKE', { size: 32 })
 const REASON_REFUND_AND_SPIKE = stringToHex('REFUND_AND_SPIKE', { size: 32 })
 
+const coordinatorReadAbi = parseAbi(['function settlementVault() view returns (address)'])
+const settlementVaultReadAbi = parseAbi([
+  'function factory() view returns (address)',
+  'function isBatchFinished(uint256 batchId) view returns (bool)',
+])
+const factoryReadAbi = parseAbi(['function getBatchCategoryHashes(uint256 batchId) view returns (bytes32[])'])
+
 const configSchema = z.object({
   schedule: z.string().describe('Cron schedule for the workflow'),
   squareBaseUrl: z.string().describe('Square API Base URL'),
   squareVersion: z.string().describe('Square API Version'),
   locationId: z.string().describe('Square Location ID'),
   merchantId: z.string().describe('Merchant ID for Square'),
-  category: z.string().describe('Product category for report identity'),
   batchId: z.coerce.bigint().describe('Batch ID associated with this revenue'),
   oracleCoordinatorAddress: z.string().describe('Address of the OracleCoordinator contract'),
   chainSelectorName: z.string().describe('Chain selector name for the target network'),
@@ -49,6 +61,7 @@ const configSchema = z.object({
     .coerce
     .bigint()
     .describe('Absolute net-sales threshold in cents to mark period as sudden-spike anomaly'),
+  minEventCountForWrite: z.coerce.number().int().positive().describe('Minimum matched events required before writing'),
   skipWrite: z.boolean().describe('If true, run fetch+consensus only and skip onchain write'),
 })
 
@@ -130,6 +143,24 @@ type ReportLogView = {
   status: number
   riskScore: number
   reasonCode: string
+}
+
+interface CategoryMetricsSnapshot {
+  categoryName: string
+  categoryHash: `0x${string}`
+  grossSales: string
+  refunds: string
+  unitsSold: string
+  refundUnits: string
+  eventCount: string
+}
+
+interface AggregatedSquareSnapshot {
+  paymentsTotal: number
+  paymentsCompleted: number
+  refundsTotal: number
+  refundsCompleted: number
+  categories: CategoryMetricsSnapshot[]
 }
 
 const periodReportAndBatchParams = parseAbiParameters(
@@ -289,123 +320,99 @@ const fetchSquareRefunds = (
   return refunds
 }
 
-const fetchCafeRevenueFromSquare = (
+const fetchSquareSnapshot = (
   nodeRuntime: NodeRuntime<Config>,
   window: QueryWindow,
   squareToken?: string,
-): PeriodReport => {
+): string => {
   const config = nodeRuntime.config
-
   const httpClient = new HTTPClient()
-  const categoryFilter = config.category.trim().toLowerCase()
   const payments = fetchSquarePayments(nodeRuntime, httpClient, config, window, squareToken)
   const refunds = fetchSquareRefunds(nodeRuntime, httpClient, config, window, squareToken)
-  let completedPayments = 0
 
-  let grossSales = 0n
-  let unitsSold = 0n
-  const selectedPaymentIds = new Set<string>()
+  let completedPayments = 0
+  let completedRefunds = 0
+
+  const paymentToCategoryHash = new Map<string, `0x${string}`>()
+  const categoryStats = new Map<
+    `0x${string}`,
+    {
+      categoryName: string
+      grossSales: bigint
+      unitsSold: bigint
+      refundAmount: bigint
+      matchedRefundEvents: bigint
+      selectedPaymentIds: Set<string>
+      refundedPaymentIds: Set<string>
+    }
+  >()
 
   for (const payment of payments) {
     if (payment.status !== 'COMPLETED') continue
     completedPayments += 1
 
-    const category = inferCategoryFromNote(payment.note)?.toLowerCase()
-    if (category !== categoryFilter) continue
+    const categoryName = inferCategoryFromNote(payment.note)
+    if (!categoryName || categoryName.length === 0) continue
 
-    grossSales += BigInt(payment.amount_money?.amount ?? 0)
-    unitsSold += 1n
-    selectedPaymentIds.add(payment.id)
+    const categoryHash = keccak256(stringToBytes(categoryName))
+    if (!categoryStats.has(categoryHash)) {
+      categoryStats.set(categoryHash, {
+        categoryName,
+        grossSales: 0n,
+        unitsSold: 0n,
+        refundAmount: 0n,
+        matchedRefundEvents: 0n,
+        selectedPaymentIds: new Set<string>(),
+        refundedPaymentIds: new Set<string>(),
+      })
+    }
+
+    const category = categoryStats.get(categoryHash)!
+    category.grossSales += BigInt(payment.amount_money?.amount ?? 0)
+    category.unitsSold += 1n
+    category.selectedPaymentIds.add(payment.id)
+    paymentToCategoryHash.set(payment.id, categoryHash)
   }
-
-  let refundAmount = 0n
-  let matchedRefundEvents = 0n
-  let completedRefunds = 0
-  const refundedPaymentIds = new Set<string>()
 
   for (const refund of refunds) {
     if (refund.status !== 'COMPLETED') continue
     completedRefunds += 1
-    if (!refund.payment_id || !selectedPaymentIds.has(refund.payment_id)) continue
 
-    refundAmount += BigInt(refund.amount_money?.amount ?? 0)
-    refundedPaymentIds.add(refund.payment_id)
-    matchedRefundEvents += 1n
+    if (!refund.payment_id) continue
+    const categoryHash = paymentToCategoryHash.get(refund.payment_id)
+    if (!categoryHash) continue
+
+    const category = categoryStats.get(categoryHash)
+    if (!category) continue
+
+    category.refundAmount += BigInt(refund.amount_money?.amount ?? 0)
+    category.refundedPaymentIds.add(refund.payment_id)
+    category.matchedRefundEvents += 1n
   }
 
-  const refundUnits = BigInt(refundedPaymentIds.size)
-  if (refundAmount > grossSales) {
-    throw new Error('Refunds exceed gross sales for the selected period')
-  }
-
-  const netSales = grossSales - refundAmount
-  const netUnitsSold = unitsSold - refundUnits
-  const eventCount = BigInt(selectedPaymentIds.size) + matchedRefundEvents
-  const refundRatioBps = grossSales > 0n ? Number((refundAmount * 10_000n) / grossSales) : 0
-  const refundRatioFlagged = refundRatioBps >= config.anomalyRefundRatioBpsThreshold
-  const suddenSpikeFlagged = netSales >= config.anomalyNetSalesSpikeCentsThreshold
-  const flagged = refundRatioFlagged || suddenSpikeFlagged
-  const status = flagged ? UNVERIFIED_STATUS : VERIFIED_STATUS
-
-  let riskScore = 0
-  if (refundRatioFlagged) {
-    riskScore += Math.min(700, Math.max(250, Math.floor(refundRatioBps / 10)))
-  }
-  if (suddenSpikeFlagged) {
-    riskScore += 350
-  }
-  riskScore = Math.min(riskScore, 1000)
-
-  let reasonCode = REASON_OK
-  if (refundRatioFlagged && suddenSpikeFlagged) {
-    reasonCode = REASON_REFUND_AND_SPIKE
-  } else if (refundRatioFlagged) {
-    reasonCode = REASON_REFUND_RATIO
-  } else if (suddenSpikeFlagged) {
-    reasonCode = REASON_SUDDEN_SPIKE
-  }
-
-  const merchantIdHash = keccak256(stringToBytes(config.merchantId))
-  const productIdHash = keccak256(stringToBytes(config.category))
-  const periodStart = BigInt(window.periodStartSec)
-  const periodEnd = BigInt(window.periodEndSec)
-  const batchHash = keccak256(encodeAbiParameters(parseAbiParameters('uint256'), [config.batchId]))
-  const periodId = keccak256(
-    encodeAbiParameters(
-      parseAbiParameters('bytes32, bytes32, uint64, uint64'),
-      [merchantIdHash, productIdHash, periodStart, periodEnd],
-    ),
-  )
+  const categories = Array.from(categoryStats.entries())
+    .map(([categoryHash, category]) => ({
+      categoryHash,
+      categoryName: category.categoryName,
+      grossSales: category.grossSales.toString(),
+      refunds: category.refundAmount.toString(),
+      unitsSold: category.unitsSold.toString(),
+      refundUnits: BigInt(category.refundedPaymentIds.size).toString(),
+      eventCount: (BigInt(category.selectedPaymentIds.size) + category.matchedRefundEvents).toString(),
+    }))
+    .sort((a, b) => a.categoryHash.localeCompare(b.categoryHash))
 
   nodeRuntime.log(
-    `Square node fetch summary: payments_total=${payments.length}, payments_completed=${completedPayments}, payments_selected=${selectedPaymentIds.size}, refunds_total=${refunds.length}, refunds_completed=${completedRefunds}, refunds_matched=${Number(matchedRefundEvents)}`,
-  )
-  nodeRuntime.log(
-    `Square node computed amounts(cents): gross=${grossSales.toString()}, refunds=${refundAmount.toString()}, net=${netSales.toString()}, units=${unitsSold.toString()}, refundUnits=${refundUnits.toString()}, netUnits=${netUnitsSold.toString()}`,
-  )
-  nodeRuntime.log(
-    `Anomaly evaluation: refundRatioBps=${refundRatioBps}, refundRatioThresholdBps=${config.anomalyRefundRatioBpsThreshold}, netSales=${netSales.toString()}, netSalesSpikeThreshold=${config.anomalyNetSalesSpikeCentsThreshold.toString()}, flagged=${flagged}, status=${status}, riskScore=${riskScore}`,
+    `Square snapshot built: payments_total=${payments.length}, payments_completed=${completedPayments}, refunds_total=${refunds.length}, refunds_completed=${completedRefunds}, categories=${categories.length}`,
   )
 
-  return {
-    periodId,
-    merchantIdHash,
-    productIdHash,
-    periodStart,
-    periodEnd,
-    grossSales,
-    refunds: refundAmount,
-    netSales,
-    unitsSold,
-    refundUnits,
-    netUnitsSold,
-    eventCount,
-    batchHash,
-    generatedAt: BigInt(window.generatedAtSec),
-    status,
-    riskScore,
-    reasonCode,
-  }
+  return JSON.stringify({
+    paymentsTotal: payments.length,
+    paymentsCompleted: completedPayments,
+    refundsTotal: refunds.length,
+    refundsCompleted: completedRefunds,
+    categories,
+  } satisfies AggregatedSquareSnapshot)
 }
 
 const toReportLogView = (report: PeriodReport): ReportLogView => ({
@@ -514,9 +521,196 @@ const getPreviousUtcDayWindow = (referenceDate: Date): QueryWindow => {
   }
 }
 
+const readContract = <T>(
+  runtime: Runtime<Config>,
+  evmClient: EVMClient,
+  to: `0x${string}`,
+  abi: ReturnType<typeof parseAbi>,
+  functionName: string,
+  args: unknown[] = [],
+): T => {
+  const callData = encodeFunctionData({
+    abi,
+    functionName,
+    args,
+  })
+
+  const callResult = evmClient
+    .callContract(runtime, {
+      call: {
+        from: hexToBase64('0x0000000000000000000000000000000000000000'),
+        to: hexToBase64(to),
+        data: hexToBase64(callData),
+      },
+    })
+    .result()
+
+  return decodeFunctionResult({
+    abi,
+    functionName,
+    data: bytesToHex(callResult.data),
+  }) as T
+}
+
+const buildReportsForTokenizedCategories = (
+  runtime: Runtime<Config>,
+  window: QueryWindow,
+  tokenizedCategoryHashes: `0x${string}`[],
+  snapshot: AggregatedSquareSnapshot,
+): PeriodReport[] => {
+  const metricsMap = new Map<string, CategoryMetricsSnapshot>()
+  for (const metric of snapshot.categories) {
+    metricsMap.set(metric.categoryHash.toLowerCase(), metric)
+  }
+
+  const merchantIdHash = keccak256(stringToBytes(runtime.config.merchantId))
+  const periodStart = BigInt(window.periodStartSec)
+  const periodEnd = BigInt(window.periodEndSec)
+  const batchHash = keccak256(encodeAbiParameters(parseAbiParameters('uint256'), [runtime.config.batchId]))
+  const minEventCount = BigInt(runtime.config.minEventCountForWrite)
+
+  const reports: PeriodReport[] = []
+  for (const categoryHash of tokenizedCategoryHashes) {
+    const metric = metricsMap.get(categoryHash.toLowerCase())
+    if (!metric) {
+      continue
+    }
+
+    const grossSales = BigInt(metric.grossSales)
+    const refunds = BigInt(metric.refunds)
+    const unitsSold = BigInt(metric.unitsSold)
+    const refundUnits = BigInt(metric.refundUnits)
+    const eventCount = BigInt(metric.eventCount)
+    if (eventCount < minEventCount) {
+      continue
+    }
+
+    if (refunds > grossSales) {
+      throw new Error(`Refunds exceed gross sales for category ${categoryHash}`)
+    }
+
+    const netSales = grossSales - refunds
+    const netUnitsSold = unitsSold - refundUnits
+
+    const refundRatioBps = grossSales > 0n ? Number((refunds * 10_000n) / grossSales) : 0
+    const refundRatioFlagged = refundRatioBps >= runtime.config.anomalyRefundRatioBpsThreshold
+    const suddenSpikeFlagged = netSales >= runtime.config.anomalyNetSalesSpikeCentsThreshold
+    const flagged = refundRatioFlagged || suddenSpikeFlagged
+    const status = flagged ? UNVERIFIED_STATUS : VERIFIED_STATUS
+
+    let riskScore = 0
+    if (refundRatioFlagged) {
+      riskScore += Math.min(700, Math.max(250, Math.floor(refundRatioBps / 10)))
+    }
+    if (suddenSpikeFlagged) {
+      riskScore += 350
+    }
+    riskScore = Math.min(riskScore, 1000)
+
+    let reasonCode = REASON_OK
+    if (refundRatioFlagged && suddenSpikeFlagged) {
+      reasonCode = REASON_REFUND_AND_SPIKE
+    } else if (refundRatioFlagged) {
+      reasonCode = REASON_REFUND_RATIO
+    } else if (suddenSpikeFlagged) {
+      reasonCode = REASON_SUDDEN_SPIKE
+    }
+
+    const periodId = keccak256(
+      encodeAbiParameters(
+        parseAbiParameters('bytes32, bytes32, uint64, uint64'),
+        [merchantIdHash, categoryHash, periodStart, periodEnd],
+      ),
+    )
+
+    reports.push({
+      periodId,
+      merchantIdHash,
+      productIdHash: categoryHash,
+      periodStart,
+      periodEnd,
+      grossSales,
+      refunds,
+      netSales,
+      unitsSold,
+      refundUnits,
+      netUnitsSold,
+      eventCount,
+      batchHash,
+      generatedAt: BigInt(window.generatedAtSec),
+      status,
+      riskScore,
+      reasonCode,
+    })
+  }
+
+  return reports
+}
+
 const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string => {
   const scheduledDate = getScheduledDate(runtime, payload)
   const window = getPreviousUtcDayWindow(scheduledDate)
+
+  const network = getNetwork({
+    chainFamily: 'evm',
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: runtime.config.isTestnet,
+  })
+  if (!network) {
+    throw new Error(`Network not found for chain selector name: ${runtime.config.chainSelectorName}`)
+  }
+  const evmClient = new EVMClient(network.chainSelector.selector)
+
+  const settlementVaultAddress = readContract<`0x${string}`>(
+    runtime,
+    evmClient,
+    runtime.config.oracleCoordinatorAddress as `0x${string}`,
+    coordinatorReadAbi,
+    'settlementVault',
+    [],
+  )
+  const batchFinished = readContract<boolean>(
+    runtime,
+    evmClient,
+    settlementVaultAddress,
+    settlementVaultReadAbi,
+    'isBatchFinished',
+    [runtime.config.batchId],
+  )
+  if (batchFinished) {
+    runtime.log(`Batch ${runtime.config.batchId.toString()} is finished, skipping Square fetch/write`)
+    return JSON.stringify({
+      skippedWrite: true,
+      reason: 'BATCH_FINISHED',
+      batchId: runtime.config.batchId.toString(),
+    })
+  }
+
+  const factoryAddress = readContract<`0x${string}`>(
+    runtime,
+    evmClient,
+    settlementVaultAddress,
+    settlementVaultReadAbi,
+    'factory',
+    [],
+  )
+  const tokenizedCategoryHashes = readContract<`0x${string}`[]>(
+    runtime,
+    evmClient,
+    factoryAddress,
+    factoryReadAbi,
+    'getBatchCategoryHashes',
+    [runtime.config.batchId],
+  )
+  if (!tokenizedCategoryHashes || tokenizedCategoryHashes.length === 0) {
+    runtime.log(`No tokenized categories for batch ${runtime.config.batchId.toString()}, skipping`)
+    return JSON.stringify({
+      skippedWrite: true,
+      reason: 'NO_TOKENIZED_CATEGORIES',
+      batchId: runtime.config.batchId.toString(),
+    })
+  }
+
   let squareToken: string | undefined
   try {
     squareToken = runtime.getSecret({ id: 'SQUARE_PAT', namespace: 'main' }).result().value
@@ -530,46 +724,51 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   }
 
   runtime.log(
-    `Fetching Square data from ${window.beginIso} to ${window.endIso} for category ${runtime.config.category}`,
+    `Fetching Square data from ${window.beginIso} to ${window.endIso} for batch ${runtime.config.batchId.toString()}`,
   )
 
-  const report = runtime
-    .runInNodeMode(
-      fetchCafeRevenueFromSquare,
-      ConsensusAggregationByFields<PeriodReport>({
-        periodId: identical,
-        merchantIdHash: identical,
-        productIdHash: identical,
-        periodStart: identical,
-        periodEnd: identical,
-        grossSales: median,
-        refunds: median,
-        netSales: median,
-        unitsSold: median,
-        refundUnits: median,
-        netUnitsSold: median,
-        eventCount: median,
-        batchHash: identical,
-        generatedAt: median,
-        status: identical,
-        riskScore: identical,
-        reasonCode: identical,
-      }),
-    )(window, squareToken)
+  const snapshotRaw = runtime
+    .runInNodeMode(fetchSquareSnapshot, consensusIdenticalAggregation<string>())(window, squareToken)
     .result()
+  const snapshot = JSON.parse(snapshotRaw) as AggregatedSquareSnapshot
 
-  runtime.log(`CRE aggregated report: ${JSON.stringify(toReportLogView(report))}`)
+  const reports = buildReportsForTokenizedCategories(runtime, window, tokenizedCategoryHashes, snapshot)
+  runtime.log(
+    `Built ${reports.length} report(s) from ${snapshot.categories.length} detected category bucket(s), tokenizedCategories=${tokenizedCategoryHashes.length}`,
+  )
 
-  if (runtime.config.skipWrite) {
-    runtime.log('skipWrite=true, not sending report onchain')
+  if (reports.length === 0) {
     return JSON.stringify({
       skippedWrite: true,
+      reason: 'NO_ACTIVITY_FOR_TOKENIZED_CATEGORIES',
       batchId: runtime.config.batchId.toString(),
-      report: toReportLogView(report),
     })
   }
 
-  return submitReport(runtime, report)
+  runtime.log(
+    `CRE aggregated reports: ${JSON.stringify(reports.map((report) => toReportLogView(report)))}`,
+  )
+
+  if (runtime.config.skipWrite) {
+    runtime.log('skipWrite=true, not sending reports onchain')
+    return JSON.stringify({
+      skippedWrite: true,
+      batchId: runtime.config.batchId.toString(),
+      reports: reports.map((report) => toReportLogView(report)),
+    })
+  }
+
+  const txHashes: string[] = []
+  for (const report of reports) {
+    txHashes.push(submitReport(runtime, report))
+  }
+
+  return JSON.stringify({
+    skippedWrite: false,
+    batchId: runtime.config.batchId.toString(),
+    reportsSent: reports.length,
+    txHashes,
+  })
 }
 
 export async function main() {
