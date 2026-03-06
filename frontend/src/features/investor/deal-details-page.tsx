@@ -314,7 +314,7 @@ export const DealDetailsPage = () => {
                         </Card>
 
                         {/* Stats */}
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                             <Card className="space-y-1">
                                 <p className="text-xs uppercase tracking-[0.16em] text-textMuted">Total Raised</p>
                                 <p className="text-2xl font-semibold text-text">${fmt(onChain.principalSoldTotal)}</p>
@@ -333,6 +333,11 @@ export const DealDetailsPage = () => {
                                 <p className="inline-flex items-center gap-1 text-xs text-success">
                                     <TrendingUp className="size-3.5" /> {progress}% subscribed
                                 </p>
+                            </Card>
+                            <Card className="space-y-1">
+                                <p className="text-xs uppercase tracking-[0.16em] text-textMuted">Tracked Square Units</p>
+                                <p className="text-2xl font-semibold text-text">{batch.frontendBatch?.unitsSettled ?? '0'}</p>
+                                <p className="text-xs text-textMuted">synced from indexer API</p>
                             </Card>
                             <Card className="space-y-1">
                                 <p className="text-xs uppercase tracking-[0.16em] text-textMuted">Revenue Settled</p>

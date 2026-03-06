@@ -16922,12 +16922,16 @@ var REASON_OK = stringToHex("OK", { size: 32 });
 var REASON_REFUND_RATIO = stringToHex("REFUND_RATIO", { size: 32 });
 var REASON_SUDDEN_SPIKE = stringToHex("SUDDEN_SPIKE", { size: 32 });
 var REASON_REFUND_AND_SPIKE = stringToHex("REFUND_AND_SPIKE", { size: 32 });
-var coordinatorReadAbi = parseAbi(["function settlementVault() view returns (address)"]);
+var coordinatorReadAbi = parseAbi([
+  "function settlementVault() view returns (address)",
+  "function revenueRegistry() view returns (address)"
+]);
 var settlementVaultReadAbi = parseAbi([
-  "function factory() view returns (address)",
-  "function isBatchFinished(uint256 batchId) view returns (bool)"
+  "function isBatchFinished(uint256 batchId) view returns (bool)",
+  "function factory() view returns (address)"
 ]);
 var factoryReadAbi = parseAbi(["function getBatchCategoryHashes(uint256 batchId) view returns (bytes32[])"]);
+var revenueRegistryReadAbi = parseAbi(["function isPeriodRecorded(bytes32 periodId) view returns (bool)"]);
 var configSchema = exports_external.object({
   schedule: exports_external.string().describe("Cron schedule for the workflow"),
   squareBaseUrl: exports_external.string().describe("Square API Base URL"),
@@ -17307,6 +17311,7 @@ var onCronTrigger = (runtime2, payload) => {
   }
   const evmClient = new ClientCapability(network248.chainSelector.selector);
   const settlementVaultAddress = readContract(runtime2, evmClient, runtime2.config.oracleCoordinatorAddress, coordinatorReadAbi, "settlementVault", []);
+  const revenueRegistryAddress = readContract(runtime2, evmClient, runtime2.config.oracleCoordinatorAddress, coordinatorReadAbi, "revenueRegistry", []);
   const batchFinished = readContract(runtime2, evmClient, settlementVaultAddress, settlementVaultReadAbi, "isBatchFinished", [runtime2.config.batchId]);
   if (batchFinished) {
     runtime2.log(`Batch ${runtime2.config.batchId.toString()} is finished, skipping Square fetch/write`);
@@ -17359,13 +17364,21 @@ var onCronTrigger = (runtime2, payload) => {
     });
   }
   const txHashes = [];
+  let skippedAlreadyRecorded = 0;
   for (const report2 of reports) {
+    const isRecorded = readContract(runtime2, evmClient, revenueRegistryAddress, revenueRegistryReadAbi, "isPeriodRecorded", [report2.periodId]);
+    if (isRecorded) {
+      runtime2.log(`Period ${report2.periodId} (batch ${runtime2.config.batchId.toString()}) already recorded, skipping`);
+      skippedAlreadyRecorded++;
+      continue;
+    }
     txHashes.push(submitReport(runtime2, report2));
   }
   return JSON.stringify({
-    skippedWrite: false,
+    skippedWrite: txHashes.length === 0 && reports.length > 0,
     batchId: runtime2.config.batchId.toString(),
-    reportsSent: reports.length,
+    reportsSent: txHashes.length,
+    reportsSkippedAlreadyRecorded: skippedAlreadyRecorded,
     txHashes
   });
 };

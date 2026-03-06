@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { readContract } from 'thirdweb'
 import { type ListingMeta, listingStore } from '@/lib/listing-store'
 import { contracts } from '@/lib/web3/contracts'
+import { apiClient } from '@/lib/api/client'
+import type { BatchView } from '@/lib/types/frontend'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -38,6 +40,7 @@ export interface EnrichedBatch {
     onChain: BatchOnChain
     categories: CategoryState[]
     meta: ListingMeta | undefined
+    frontendBatch: BatchView | undefined
 }
 
 // ─── Hook ──────────────────────────────────────────────────────────────────
@@ -123,13 +126,23 @@ export const useChainBatches = () => {
                 const allMeta = await listingStore.list()
                 const metaByBatchId = new Map(allMeta.map((m) => [m.batchId, m]))
 
-                // 6. Merge on-chain + metadata
+                // 5.5 Fetch frontend indexer batches
+                let indexerBatches: BatchView[] = []
+                try {
+                    const res = await apiClient.getBatches()
+                    indexerBatches = res.batches
+                } catch (e) {
+                    console.error('Failed to fetch frontend batches:', e)
+                }
+
+                // 6. Merge on-chain + metadata + indexer
                 const enriched: EnrichedBatch[] = batchResults.map((raw, i) => {
                     const batch = raw as BatchOnChain
                     return {
                         onChain: batch,
                         categories: (categoryResults[i] ?? []) as CategoryState[],
                         meta: metaByBatchId.get(String(batch.id)),
+                        frontendBatch: indexerBatches.find((b) => Number(b.batchId) === Number(batch.id)),
                     }
                 })
 
@@ -202,11 +215,20 @@ export const useChainBatch = (batchId: number) => {
                 if (cancelled) return
 
                 const meta = await listingStore.get(batchId)
+                let frontendBatch: BatchView | undefined
+                try {
+                    const res = await apiClient.getBatch(batchId)
+                    frontendBatch = res.batches[0]
+                } catch (e) {
+                    console.error('Failed to fetch frontend batch:', e)
+                }
+
                 const onChain = rawBatch as BatchOnChain
                 setBatch({
                     onChain,
                     categories: categories as CategoryState[],
                     meta: meta,
+                    frontendBatch,
                 })
             } catch (err) {
                 if (!cancelled) {

@@ -33,12 +33,17 @@ const REASON_REFUND_RATIO = stringToHex('REFUND_RATIO', { size: 32 })
 const REASON_SUDDEN_SPIKE = stringToHex('SUDDEN_SPIKE', { size: 32 })
 const REASON_REFUND_AND_SPIKE = stringToHex('REFUND_AND_SPIKE', { size: 32 })
 
-const coordinatorReadAbi = parseAbi(['function settlementVault() view returns (address)'])
+const coordinatorReadAbi = parseAbi([
+  'function settlementVault() view returns (address)',
+  'function revenueRegistry() view returns (address)',
+])
 const settlementVaultReadAbi = parseAbi([
-  'function factory() view returns (address)',
   'function isBatchFinished(uint256 batchId) view returns (bool)',
+  'function factory() view returns (address)',
 ])
 const factoryReadAbi = parseAbi(['function getBatchCategoryHashes(uint256 batchId) view returns (bytes32[])'])
+
+const revenueRegistryReadAbi = parseAbi(['function isPeriodRecorded(bytes32 periodId) view returns (bool)'])
 
 const configSchema = z.object({
   schedule: z.string().describe('Cron schedule for the workflow'),
@@ -479,9 +484,9 @@ const submitReport = (runtime: Runtime<Config>, report: PeriodReport): string =>
 const getScheduledDate = (runtime: Runtime<Config>, payload: CronPayload): Date => {
   const rawTimestamp = payload.scheduledExecutionTime as
     | {
-        seconds?: bigint | number
-        nanos?: number
-      }
+      seconds?: bigint | number
+      nanos?: number
+    }
     | undefined
 
   if (!rawTimestamp?.seconds) {
@@ -669,6 +674,14 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
     'settlementVault',
     [],
   )
+  const revenueRegistryAddress = readContract<`0x${string}`>(
+    runtime,
+    evmClient,
+    runtime.config.oracleCoordinatorAddress as `0x${string}`,
+    coordinatorReadAbi,
+    'revenueRegistry',
+    [],
+  )
   const batchFinished = readContract<boolean>(
     runtime,
     evmClient,
@@ -759,14 +772,32 @@ const onCronTrigger = (runtime: Runtime<Config>, payload: CronPayload): string =
   }
 
   const txHashes: string[] = []
+  let skippedAlreadyRecorded = 0
+
   for (const report of reports) {
+    const isRecorded = readContract<boolean>(
+      runtime,
+      evmClient,
+      revenueRegistryAddress,
+      revenueRegistryReadAbi,
+      'isPeriodRecorded',
+      [report.periodId],
+    )
+
+    if (isRecorded) {
+      runtime.log(`Period ${report.periodId} (batch ${runtime.config.batchId.toString()}) already recorded, skipping`)
+      skippedAlreadyRecorded++
+      continue
+    }
+
     txHashes.push(submitReport(runtime, report))
   }
 
   return JSON.stringify({
-    skippedWrite: false,
+    skippedWrite: txHashes.length === 0 && reports.length > 0,
     batchId: runtime.config.batchId.toString(),
-    reportsSent: reports.length,
+    reportsSent: txHashes.length,
+    reportsSkippedAlreadyRecorded: skippedAlreadyRecorded,
     txHashes,
   })
 }

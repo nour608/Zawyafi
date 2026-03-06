@@ -9,8 +9,8 @@
   "chainSelectorName": "ethereum-testnet-sepolia",
   "isTestnet": true,
   "gasLimit": "500000",
-  "anomalyRefundRatioBpsThreshold": 2500,
+  "anomalyRefundRatioBpsThreshold": 1500,
   "anomalyNetSalesSpikeCentsThreshold": "600",
   "minEventCountForWrite": 1,
-  "skipWrite": true
+  "skipWrite": false
 }
