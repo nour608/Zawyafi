@@ -89,6 +89,17 @@ export const openDatabase = (inputPath: string): DatabaseSync => {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (request_id) REFERENCES compliance_report_requests(request_id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS listing_metadata (
+      batch_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      image_url TEXT NOT NULL DEFAULT '',
+      sector TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `)
 
   return db
@@ -97,8 +108,8 @@ export const openDatabase = (inputPath: string): DatabaseSync => {
 export const openPostgresPool = (databaseUrl: string, useSsl: boolean): Pool => {
   const ssl = useSsl
     ? {
-        rejectUnauthorized: false,
-      }
+      rejectUnauthorized: false,
+    }
     : undefined
 
   return new Pool({
@@ -176,6 +187,17 @@ export const ensurePostgresSchema = async (pool: Pool): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL,
       FOREIGN KEY (request_id) REFERENCES compliance_report_requests(request_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS listing_metadata (
+      batch_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      image_url TEXT NOT NULL DEFAULT '',
+      sector TEXT NOT NULL DEFAULT '',
+      location TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
     );
   `)
 }

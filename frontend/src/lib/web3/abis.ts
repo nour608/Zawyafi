@@ -1,15 +1,101 @@
+// ─── ProductBatchFactory ───────────────────────────────────────────────────
+// Matches ProductBatchFactory.sol @ smart-contracts/src/core/ProductBatchFactory.sol
 export const productBatchFactoryAbi = [
+  // ── State variable getters ──────────────────────────────────────────────
+  {
+    type: 'function',
+    name: 'nextBatchId',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+
+  // ── Read ────────────────────────────────────────────────────────────────
+  {
+    type: 'function',
+    name: 'getBatch',
+    stateMutability: 'view',
+    inputs: [{ name: 'batchId', type: 'uint256' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'id', type: 'uint256' },
+          { name: 'merchantIdHash', type: 'bytes32' },
+          { name: 'issuer', type: 'address' },
+          { name: 'founder', type: 'address' },
+          { name: 'purchaseToken', type: 'address' },
+          { name: 'unitToken', type: 'address' },
+          { name: 'profitBps', type: 'uint16' },
+          { name: 'principalSoldTotal', type: 'uint256' },
+          { name: 'targetPayoutTotal', type: 'uint256' },
+          { name: 'settledRevenueTotal', type: 'uint256' },
+          { name: 'totalUnitsForSale', type: 'uint256' },
+          { name: 'totalUnitsSold', type: 'uint256' },
+          { name: 'proceedsWithdrawn', type: 'uint256' },
+          { name: 'active', type: 'bool' },
+          { name: 'closed', type: 'bool' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'getBatchCategoryHashes',
+    stateMutability: 'view',
+    inputs: [{ name: 'batchId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bytes32[]' }],
+  },
+  {
+    type: 'function',
+    name: 'getCategoryState',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'batchId', type: 'uint256' },
+      { name: 'categoryIdHash', type: 'bytes32' },
+    ],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'categoryIdHash', type: 'bytes32' },
+          { name: 'unitsForSale', type: 'uint256' },
+          { name: 'unitsSold', type: 'uint256' },
+          { name: 'unitCost', type: 'uint256' },
+          { name: 'principalSold', type: 'uint256' },
+          { name: 'tokenized', type: 'bool' },
+        ],
+      },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'isBatchClosed',
+    stateMutability: 'view',
+    inputs: [{ name: 'batchId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+
+  // ── Write ───────────────────────────────────────────────────────────────
   {
     type: 'function',
     name: 'createBatch',
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'merchantIdHash', type: 'bytes32' },
-      { name: 'productIdHash', type: 'bytes32' },
+      {
+        name: 'categories',
+        type: 'tuple[]',
+        components: [
+          { name: 'categoryIdHash', type: 'bytes32' },
+          { name: 'unitsForSale', type: 'uint256' },
+          { name: 'unitCost', type: 'uint256' },
+        ],
+      },
       { name: 'purchaseToken', type: 'address' },
-      { name: 'unitCost', type: 'uint256' },
-      { name: 'unitPayout', type: 'uint256' },
-      { name: 'unitsForSale', type: 'uint256' },
+      { name: 'profitBps', type: 'uint16' },
       { name: 'tokenName', type: 'string' },
       { name: 'tokenSymbol', type: 'string' },
       { name: 'issuer', type: 'address' },
@@ -23,6 +109,7 @@ export const productBatchFactoryAbi = [
     stateMutability: 'nonpayable',
     inputs: [
       { name: 'batchId', type: 'uint256' },
+      { name: 'categoryIdHash', type: 'bytes32' },
       { name: 'units', type: 'uint256' },
     ],
     outputs: [],
@@ -40,34 +127,62 @@ export const productBatchFactoryAbi = [
   },
   {
     type: 'function',
-    name: 'getBatch',
-    stateMutability: 'view',
+    name: 'setBatchActive',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'batchId', type: 'uint256' },
+      { name: 'active', type: 'bool' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'closeBatch',
+    stateMutability: 'nonpayable',
     inputs: [{ name: 'batchId', type: 'uint256' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'id', type: 'uint256' },
-          { name: 'merchantIdHash', type: 'bytes32' },
-          { name: 'productIdHash', type: 'bytes32' },
-          { name: 'issuer', type: 'address' },
-          { name: 'founder', type: 'address' },
-          { name: 'purchaseToken', type: 'address' },
-          { name: 'unitToken', type: 'address' },
-          { name: 'unitCost', type: 'uint256' },
-          { name: 'unitPayout', type: 'uint256' },
-          { name: 'unitsForSale', type: 'uint256' },
-          { name: 'unitsSoldToInvestors', type: 'uint256' },
-          { name: 'fundsRaised', type: 'uint256' },
-          { name: 'active', type: 'bool' },
-        ],
-      },
+    outputs: [],
+  },
+
+  // ── Events ───────────────────────────────────────────────────────────────
+  {
+    type: 'event',
+    name: 'BatchCreated',
+    inputs: [
+      { name: 'batchId', type: 'uint256', indexed: true },
+      { name: 'merchantIdHash', type: 'bytes32', indexed: true },
+      { name: 'unitToken', type: 'address', indexed: false },
+      { name: 'profitBps', type: 'uint16', indexed: false },
+    ],
+  },
+  {
+    type: 'event',
+    name: 'UnitsPurchased',
+    inputs: [
+      { name: 'batchId', type: 'uint256', indexed: true },
+      { name: 'categoryIdHash', type: 'bytes32', indexed: true },
+      { name: 'buyer', type: 'address', indexed: true },
+      { name: 'units', type: 'uint256', indexed: false },
+      { name: 'cost', type: 'uint256', indexed: false },
     ],
   },
 ] as const
 
+// ─── SettlementVault ───────────────────────────────────────────────────────
 export const settlementVaultAbi = [
+  {
+    type: 'function',
+    name: 'factory',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'isBatchFinished',
+    stateMutability: 'view',
+    inputs: [{ name: 'batchId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'bool' }],
+  },
   {
     type: 'function',
     name: 'fundBatch',
@@ -88,15 +203,9 @@ export const settlementVaultAbi = [
     ],
     outputs: [{ name: 'payoutAmount', type: 'uint256' }],
   },
-  {
-    type: 'function',
-    name: 'claimableGlobalUnits',
-    stateMutability: 'view',
-    inputs: [{ name: 'batchId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
 ] as const
 
+// ─── RevenueRegistry ──────────────────────────────────────────────────────
 export const revenueRegistryAbi = [
   {
     type: 'function',
@@ -138,6 +247,7 @@ export const revenueRegistryAbi = [
   },
 ] as const
 
+// ─── OracleCoordinator ────────────────────────────────────────────────────
 export const oracleCoordinatorAbi = [
   {
     type: 'function',
@@ -190,7 +300,8 @@ export const oracleCoordinatorAbi = [
   },
 ] as const
 
-export const unitTokenAbi = [
+// ─── ERC20 (purchase token) ───────────────────────────────────────────────
+export const erc20Abi = [
   {
     type: 'function',
     name: 'balanceOf',
@@ -205,4 +316,34 @@ export const unitTokenAbi = [
     inputs: [],
     outputs: [{ name: '', type: 'string' }],
   },
+  {
+    type: 'function',
+    name: 'decimals',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint8' }],
+  },
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
 ] as const
+
+// Keep legacy alias for existing imports
+export const unitTokenAbi = erc20Abi

@@ -3,9 +3,11 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { BarChart2, PieChart, Settings, ShieldCheck, Store, Wallet } from 'lucide-react'
+import { BarChart2, LogOut, PieChart, Settings, ShieldCheck, Store, Wallet } from 'lucide-react'
+import { useActiveWallet, useDisconnect } from 'thirdweb/react'
 import { ZawyafiLogo } from '@/components/branding/zawyafi-logo'
 import { useCapabilities } from '@/hooks/use-capabilities'
+import { clearWalletAuthSession } from '@/lib/api/wallet-auth'
 import { cn } from '@/lib/utils'
 import { formatShortHash } from '@/lib/utils/format'
 import type { RoleCapability } from '@/lib/types/frontend'
@@ -17,22 +19,13 @@ const resolvePortal = (pathname: string, capabilities: RoleCapability): SidebarP
     return 'investor'
   }
 
-  // Keep admin navigation consistent across operations routes.
   if (capabilities.canUseAdmin && (pathname.startsWith('/admin') || pathname.startsWith('/compliance') || pathname.startsWith('/merchant'))) {
     return 'admin'
   }
 
-  if (pathname.startsWith('/admin')) {
-    return 'admin'
-  }
-
-  if (pathname.startsWith('/merchant')) {
-    return 'merchant'
-  }
-
-  if (pathname.startsWith('/compliance') && !pathname.startsWith('/compliance/kyc')) {
-    return 'compliance'
-  }
+  if (pathname.startsWith('/admin')) return 'admin'
+  if (pathname.startsWith('/merchant')) return 'merchant'
+  if (pathname.startsWith('/compliance') && !pathname.startsWith('/compliance/kyc')) return 'compliance'
 
   return 'investor'
 }
@@ -41,6 +34,14 @@ export function Sidebar() {
   const pathname = usePathname() || '/'
   const { address, capabilities, isConnected } = useCapabilities()
   const portal = resolvePortal(pathname, capabilities)
+  const wallet = useActiveWallet()
+  const { disconnect } = useDisconnect()
+
+  const handleDisconnect = () => {
+    if (!wallet) return
+    clearWalletAuthSession()
+    disconnect(wallet)
+  }
 
   const linksByPortal = {
     investor: [
@@ -108,13 +109,21 @@ export function Sidebar() {
       {address ? (
         <div className="border-t border-line p-4">
           <div className="flex items-center gap-3 rounded-lg border border-transparent px-2 py-2">
-            <div className="flex size-10 items-center justify-center rounded-full border border-line bg-panel font-bold text-gold">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-full border border-line bg-panel font-bold text-gold">
               {address.slice(2, 4).toUpperCase()}
             </div>
-            <div className="flex flex-col overflow-hidden">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <p className="truncate text-sm font-bold text-text">{formatShortHash(address)}</p>
               <p className="truncate text-xs text-textMuted">{roleLabelByPortal[portal]}</p>
             </div>
+            <button
+              onClick={handleDisconnect}
+              aria-label="Disconnect wallet"
+              title="Disconnect"
+              className="shrink-0 rounded-lg p-2 text-textMuted transition-colors hover:bg-panelMuted hover:text-text"
+            >
+              <LogOut className="size-4" />
+            </button>
           </div>
         </div>
       ) : null}

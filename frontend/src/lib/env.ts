@@ -43,7 +43,11 @@ const parseList = (raw: string): string[] =>
 
 const normalizedBackendBaseUrl = parsed.data.NEXT_PUBLIC_BACKEND_BASE_URL.trim().replace(/\/$/, '')
 
-if (process.env.NODE_ENV === 'production' && /(^https?:\/\/)(127\.0\.0\.1|localhost)(:\d+)?$/i.test(normalizedBackendBaseUrl)) {
+const isProductionRuntime =
+  process.env.NODE_ENV === 'production' &&
+  process.env.NEXT_PHASE !== 'phase-production-build'
+
+if (isProductionRuntime && /(^https?:\/\/)(127\.0\.0\.1|localhost)(:\d+)?$/i.test(normalizedBackendBaseUrl)) {
   throw new Error(
     `Invalid frontend environment: NEXT_PUBLIC_BACKEND_BASE_URL must not point to localhost in production (${normalizedBackendBaseUrl})`,
   )

@@ -17,6 +17,7 @@ import { AppError, isAppError } from './errors'
 import { KycStore } from './kyc-store'
 import { PgComplianceStore } from './pg-compliance-store'
 import { PgKycStore } from './pg-kyc-store'
+import { ListingStore, PgListingStore } from './listing-store-backend'
 import { createSumsubIntake, parseSumsubWebhook, verifySumsubWebhook } from './sumsub'
 import { COMPLIANCE_REPORT_STATUSES, KYC_STATUSES, type OnchainOutcome } from './types'
 import {
@@ -459,6 +460,9 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
   const complianceStore: ComplianceStore | PgComplianceStore = postgresPool
     ? new PgComplianceStore(postgresPool)
     : new ComplianceStore(sqliteDb as NonNullable<typeof sqliteDb>)
+  const listingStore: ListingStore | PgListingStore = postgresPool
+    ? new PgListingStore(postgresPool)
+    : new ListingStore(sqliteDb as NonNullable<typeof sqliteDb>)
   const rateLimitBuckets = new Map<string, RateLimitBucket>()
 
   if (postgresPool) {
@@ -474,7 +478,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
 
   app.removeContentTypeParser('application/json')
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
-    ;(request as RequestWithRawBody).rawBodyText = String(body ?? '')
+    ; (request as RequestWithRawBody).rawBodyText = String(body ?? '')
     done(null, body)
   })
 
@@ -786,14 +790,14 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       updatedAt: record.updatedAt,
       sumsubWebSdk:
         record.status === 'PENDING_USER_SUBMISSION' &&
-        record.sumsubApplicantId &&
-        record.sumsubSdkToken &&
-        config.sumsubAppToken
+          record.sumsubApplicantId &&
+          record.sumsubSdkToken &&
+          config.sumsubAppToken
           ? {
-              applicantId: record.sumsubApplicantId,
-              sdkToken: record.sumsubSdkToken,
-              appToken: config.sumsubAppToken,
-            }
+            applicantId: record.sumsubApplicantId,
+            sdkToken: record.sumsubSdkToken,
+            appToken: config.sumsubAppToken,
+          }
           : null,
     }
   })
@@ -1235,6 +1239,43 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
       retriable: appError.statusCode >= 500,
       details: appError.details,
     })
+  })
+
+  // ─── Listing Metadata Routes ─────────────────────────────────────────────
+
+  // GET /listings — public: all listing metadata
+  app.get('/listings', async (_request, reply) => {
+    const all = await listingStore.getAll()
+    reply.send({ listings: all })
+  })
+
+  // GET /listings/:batchId — public: one listing's metadata
+  app.get<{ Params: { batchId: string } }>('/listings/:batchId', async (request, reply) => {
+    const { batchId } = request.params
+    const meta = await listingStore.getOne(batchId)
+    if (!meta) {
+      reply.code(404).send({ errorCode: 'NOT_FOUND', message: 'Listing not found' })
+      return
+    }
+    reply.send(meta)
+  })
+
+  // PUT /listings/:batchId — admin only: upsert listing metadata
+  app.put<{ Params: { batchId: string } }>('/listings/:batchId', async (request, reply) => {
+    await assertWalletRequestAuth(request, 'admin')
+
+    const { batchId } = request.params
+    const body = parseBody(request as RequestWithRawBody)
+    const parsed = z.object({
+      title: z.string().max(200).default(''),
+      description: z.string().max(2000).default(''),
+      imageUrl: z.string().url().or(z.literal('')).default(''),
+      sector: z.string().max(100).default(''),
+      location: z.string().max(200).default(''),
+    }).parse(body)
+
+    const meta = await listingStore.upsert({ batchId, ...parsed })
+    reply.send(meta)
   })
 
   return app
