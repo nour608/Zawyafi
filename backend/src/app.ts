@@ -500,7 +500,7 @@ export const buildApp = (options: BuildAppOptions = {}): FastifyInstance => {
     if (requestOriginHeader && isAllowedOrigin) {
       reply.header('access-control-allow-origin', requestOriginHeader)
       reply.header('vary', 'Origin')
-      reply.header('access-control-allow-methods', 'GET,POST,OPTIONS')
+      reply.header('access-control-allow-methods', 'GET,POST,PUT,OPTIONS')
       reply.header('access-control-allow-headers', corsAllowHeaders)
     }
 
