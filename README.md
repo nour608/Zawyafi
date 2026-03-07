@@ -13,7 +13,7 @@
 
 ---
 
-## 📖 1. Project Overview
+## 1. Project Overview
 
 **Zawyafi** is a fully compliant, real-world asset (RWA) investment platform that enables users to invest in everyday physical businesses—ranging from local cafes and bakeries to automated vending machines and large-scale manufacturing facilities.
 
@@ -33,9 +33,9 @@ By lowering the barrier to entry to just **$10**, Zawyafi democratizes access to
 
 ---
 
-## 💼 2. Business Value
+## 2. Business Value
 
-### 🏢 For Businesses (Issuers)
+### For Businesses (Issuers)
 
 Solve the lack of liquidity without giving up equity or taking predatory loans.
 
@@ -45,11 +45,11 @@ Solve the lack of liquidity without giving up equity or taking predatory loans.
 
 *Example: A local cafe needs $30,000 to expand. They tokenize their future inventory:*
 
-- ☕ **Coffee**: $10,000 target → Tokenized at $2 per unit/order
-- 🥐 **Bakery**: $10,000 target → Tokenized at $3 per unit/order
-- 🥪 **Sandwiches**: $10,000 target → Tokenized at $4 per unit/order
+- **Coffee**: $10,000 target → Tokenized at $2 per unit/order
+- **Bakery**: $10,000 target → Tokenized at $3 per unit/order
+- **Sandwiches**: $10,000 target → Tokenized at $4 per unit/order
 
-### 👥 For Investors
+### For Investors
 
 - **Real-World Yield**: Earn sustainable returns backed by physical commerce, not speculative tokenomics.
 - **On-Chain Ownership**: Immutable, cryptographic proof of your fractional ownership.
@@ -60,17 +60,17 @@ Solve the lack of liquidity without giving up equity or taking predatory loans.
 
 ---
 
-## ✨ 3. Key Features
+## 3. Key Features
 
-- 🪙 **Tokenized Real-World Assets**: Immutable, divisible, and programmable representations of physical business inventory.
-- 🔐 **Private KYC Verification**: Privacy-preserving identity verification.
-- 🏛 **Compliance-Ready Infrastructure**: Built-in regulatory safeguards adhering to international financial standards.
-- ⚡ **Smart Contract Settlement**: Trustless, automated payout distribution based on cryptographically verified revenue.
-- 💳 **Fiat & Crypto Payments**: Seamless on-ramping for mainstream retail alongside Web3 natives. (Not Implemented Yet)
+- **Tokenized Real-World Assets**: Immutable, divisible, and programmable representations of physical business inventory.
+- **Private KYC Verification**: Privacy-preserving identity verification.
+- **Compliance-Ready Infrastructure**: Built-in regulatory safeguards adhering to international financial standards.
+- **Smart Contract Settlement**: Trustless, automated payout distribution based on cryptographically verified revenue.
+- **Fiat & Crypto Payments**: Seamless on-ramping for mainstream retail alongside Web3 natives. (Not Implemented Yet)
 
 ---
 
-## 🏗️ 4. Technical Architecture & CRE Usage
+## 4. Technical Architecture & CRE Usage
 
 The fundamental challenge in RWA is the "Oracle Problem": securing the connection between off-chain reality and on-chain logic. Zawyafi utilizes **Chainlink CRE** as the ultimate bridge of trust.
 
@@ -139,7 +139,7 @@ sequenceDiagram
     participant SC as "Identity Manager (On-Chain)"
     
     KYC->>API: 1. User passes KYC checks
-    API->>CRE: 2. Request on-chain status update (ZKP/Hash)
+    API->>CRE: 2. Request on-chain status update (Hash)
     activate CRE
     CRE->>CRE: 3. Verify API signature & auth
     CRE->>SC: 4. Transact status (Whitelisted/Rejected)
@@ -166,7 +166,7 @@ sequenceDiagram
 
 ---
 
-## 📂 5. Repository Structure
+## 5. Repository Structure
 
 This repository is organized as a clean, microservice-ready architecture:
 
@@ -181,7 +181,7 @@ This repository is organized as a clean, microservice-ready architecture:
 
 ---
 
-## 🚀 6. Quick Start (Oracle CRE)
+## 6. Quick Start (Oracle CRE)
 
 To spin up and test the Chainlink CRE integration locally:
 You can find more information about every workflow in WORKFLOW_OVERVIEW.md file of every workflow.
@@ -222,7 +222,7 @@ But here is the essential information:
 
 > **Note:** The Square workflow is designed to run once daily as it fetches only the previous day's sales data. If executed multiple times in a single day, the workflow will skip processing and indicate that the period has already been reported.
 
-## 7. Smart contracts addresses
+## 7. Smart contracts addresses (Sepolia Testnet)
 
 - **IdentityRegistry:** `0xc15869818c5E69373B04dd0433c7Ab46848e1AB4`
 - **Compliance:** `0x29EA0E59b37D96CCD4394dEF0737b3d21E328362`
