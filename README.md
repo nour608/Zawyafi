@@ -199,6 +199,13 @@ But here is the essential information:
    CRE_ETH_PRIVATE_KEY=your_private_key
    ```
 
+   If you have any Private key issue while running the workflow, you can use this command in the terminal (but it's not recommended):
+
+   ```bash
+   unset CRE_ETH_PRIVATE_KEY
+   export CRE_ETH_PRIVATE_KEY="$(sed -n 's/^CRE_ETH_PRIVATE_KEY=//p' .env | tr -d '\r\n' | tr -d '"')"
+   ```
+
 3. To test the square workflow add .env file to the square-workflow directory and use the following PAT:
 
    ```bash
