@@ -4,7 +4,7 @@
 
 **Institutional-Grade Web3 Infrastructure for Real-World Asset (RWA) Investments**
 
-[![Chainlink BUILD](https://img.shields.io/badge/Chainlink-CRE-blue.svg)](https://chain.link)
+[![Chainlink BUILD](https://img.shields.io/badge/Chainlink-CRE-blue.svg)](https://chain.link/chainlink-runtime-environment)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 *Connecting Main Street to Decentralized Finance through Chainlink CRE.*
