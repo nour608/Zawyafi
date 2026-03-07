@@ -151,34 +151,37 @@ This repository is organized as a clean, microservice-ready architecture:
 - `smart-contracts/`: Immutable EVM contracts managing fractional tokenization, yields, and identity.
 - `backend/`: Core backend and API gateway for orchestrating KYC and off-chain syncs.
 - `frontend/`: Next.js web application for issuers and investors.
-- `square-testing-cafe-integration/`: Square sandbox testing and simulation backend.
 
 ---
 
 ## 🚀 6. Quick Start (Oracle CRE)
 
 To spin up and test the Chainlink CRE integration locally:
+You can find more information about every workflow in WORKFLOW_OVERVIEW.md file of every workflow.
+But here is the essential information:
 
-1. Navigate to the desired workflow:
-
-   ```bash
-   cd oracle-CRE-Integrations/square-workflow
-   ```
-
-2. Install dependencies:
+1. Install dependencies for every workflow:
 
    ```bash
    bun install
    ```
 
-3. Test your CRE workflows using the Chainlink CLI:
+2. Add your CRE_ETH_PRIVATE_KEY to the main .env file:
 
    ```bash
-   # Follow local CLI commands specific to the project.yaml configuration
+   CRE_ETH_PRIVATE_KEY=your_private_key
+   ```
+
+3. To test the square workflow add .env file to the square-workflow directory and use the following PAT:
+
+   ```bash
+   SQUARE_PAT=EAAAlzEStIqpKw1oHOlvwxGco2dR03qOpfzJD23YJq8FJ_pAaQ_U6RGYt5_4gjI_
+   ```
+
+   For KYC and Compliance workflows add .env file to the kyc-settlement-workflow directory and use the following:
+
+   ```bash
+   BACKEND_INTERNAL_TOKEN=3c788e794c1085b3b50e467733f51f2c2488431b322c82425d394db30bbacbc8
    ```
 
 ---
-
-<div align="center">
-  <i>Built with ❤️ for the Chainlink Hackathon.</i>
-</div>
