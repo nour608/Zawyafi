@@ -185,3 +185,16 @@ But here is the essential information:
    ```
 
 ---
+
+> **Note:** The Square workflow is designed to run once daily as it fetches only the previous day's sales data. If executed multiple times in a single day, the workflow will skip processing and indicate that the period has already been reported.
+
+## 7. Smart contracts addresses
+
+- **IdentityRegistry:** `0xc15869818c5E69373B04dd0433c7Ab46848e1AB4`
+- **Compliance:** `0x29EA0E59b37D96CCD4394dEF0737b3d21E328362`
+- **CurrencyManager:** `0xd3EE92adE8cb872C73Ff6B6d53FB3702405058df`
+- **ProductBatchFactory:** `0xBFdBdeb6FF7F77afa0Ec47B1CFD34b53D81EfF32`
+- **RevenueRegistry:** `0xfDb35eaeAB99fbC5eBD9D5929e2233acc5ee0BEA`
+- **SettlementVault:** `0x70Fc51b111e384ad3B548e94895cc64cB9C592Ab`
+- **OracleCoordinator:** `0xDb4c31628Ff691d114863058F1034B54964dfD62`
+- **KycOracleReceiver:** `0xe706556EeFc0d056A96868e1A38567d8fe3e9bf9`
