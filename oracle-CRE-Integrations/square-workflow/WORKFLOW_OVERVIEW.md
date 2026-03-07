@@ -5,26 +5,26 @@ This workflow reads daily Square activity, builds revenue reports per category, 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  A["Square API<br/>payments + refunds"] --> B["square-workflow<br/>main.ts"]
-  B --> C["Aggregate by category<br/>from payment note"]
-  C --> D["Hash category names<br/>keccak256"]
-  D --> E["Read onchain config"]
+graph LR
+  A[Square API payments + refunds] --> B[square-workflow main.ts]
+  B --> C[Aggregate by category from payment note]
+  C --> D[Hash category names keccak256]
+  D --> E[Read onchain config]
 
-  E --> E1["OracleCoordinator<br/>settlementVault()"]
-  E1 --> E2["SettlementVault<br/>factory() + isBatchFinished(batchId)"]
-  E2 --> E3["ProductBatchFactory<br/>getBatchCategoryHashes(batchId)"]
+  E --> E1[OracleCoordinator settlementVault]
+  E1 --> E2[SettlementVault factory + isBatchFinished]
+  E2 --> E3[ProductBatchFactory getBatchCategoryHashes]
 
-  E3 --> F["Filter to tokenized categories"]
-  F --> G["Build PeriodReport(s)"]
-  G --> G1{"RevenueRegistry<br/>isPeriodRecorded(periodId)?"}
-  G1 -- True --> G2["Skip Report"]
-  G1 -- False --> H{"skipWrite?"}
-  H -- true --> I["Log only / simulation"]
-  H -- false --> J["CRE writeReport"]
-  J --> K["OracleCoordinator.onReport"]
-  K --> L["RevenueRegistry.recordPeriod"]
-  K --> M["SettlementVault.settleCategoryRevenue"]
+  E3 --> F[Filter to tokenized categories]
+  F --> G[Build PeriodReports]
+  G --> G1{isPeriodRecorded?}
+  G1 -->|True| G2[Skip Report]
+  G1 -->|False| H{skipWrite?}
+  H -->|true| I[Log only / simulation]
+  H -->|false| J[CRE writeReport]
+  J --> K[OracleCoordinator onReport]
+  K --> L[RevenueRegistry recordPeriod]
+  K --> M[SettlementVault settleCategoryRevenue]
 ```
 
 ## Runtime Flow

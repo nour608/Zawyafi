@@ -5,15 +5,15 @@ This workflow pulls compliance export requests from the backend, reads period da
 ## Architecture
 
 ```mermaid
-flowchart LR
-  A["Backend API<br/>/internal/compliance/ready"] --> B["compliance-export-workflow<br/>main.ts"]
-  B --> C["Validate ready records<br/>requestId/hash/date window"]
-  C --> D["Bounded chain scan<br/>PeriodRecorded logs"]
-  D --> E["RevenueRegistry.getPeriod(periodId)"]
-  E --> F["Build compliance packet<br/>totals + periods + merkle root"]
-  F --> G["Compute deterministic reportHash"]
-  G --> H["Backend API<br/>/internal/compliance/report-result"]
-  H --> I["SUCCESS or RETRYABLE"]
+graph LR
+  A[Backend API internal/compliance/ready] --> B[compliance-export-workflow main.ts]
+  B --> C[Validate ready records requestId hash date window]
+  C --> D[Bounded chain scan PeriodRecorded logs]
+  D --> E[RevenueRegistry getPeriod]
+  E --> F[Build compliance packet totals + periods + merkle root]
+  F --> G[Compute deterministic reportHash]
+  G --> H[Backend API internal/compliance/report-result]
+  H --> I[SUCCESS or RETRYABLE]
 ```
 
 ## Runtime Flow

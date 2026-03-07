@@ -5,15 +5,15 @@ This workflow pulls approved KYC records from the backend, builds the report pay
 ## Architecture
 
 ```mermaid
-flowchart LR
-  A["Backend API<br/>/internal/kyc/ready-onchain"] --> B["kyc-settlement-workflow<br/>main.ts"]
-  B --> C["Hash requestId<br/>keccak256"]
-  C --> D["Encode payload<br/>requestIdHash, wallet, approvedAt"]
-  D --> E["CRE report + sign"]
-  E --> F["CRE writeReport"]
-  F --> G["KycOracleReceiver.onReport"]
-  G --> H["IdentityRegistry.addAddress"]
-  F --> I["Backend API<br/>/internal/kyc/onchain-result"]
+graph LR
+  A[Backend API internal/kyc/ready-onchain] --> B[kyc-settlement-workflow main.ts]
+  B --> C[Hash requestId keccak256]
+  C --> D[Encode payload requestIdHash wallet approvedAt]
+  D --> E[CRE report + sign]
+  E --> F[CRE writeReport]
+  F --> G[KycOracleReceiver onReport]
+  G --> H[IdentityRegistry addAddress]
+  F --> I[Backend API internal/kyc/onchain-result]
 ```
 
 ## Runtime Flow

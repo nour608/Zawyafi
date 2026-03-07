@@ -1,21 +1,184 @@
-# Zawyafi
+<div align="center">
 
-Repository for the Zawyafi project, organized as a clean multi-part structure.
+# 🌐 Zawyafi
 
-## Structure
+**Institutional-Grade Web3 Infrastructure for Real-World Asset (RWA) Investments**
 
-- `docs/`: product, architecture, and deliverables documentation.
-- `oracle/`: Chainlink CRE oracle project.
-  - `oracle/square-workflow/`: Square revenue workflow.
-  - `oracle/kyc-settlement-workflow/`: KYC onchain settlement workflow.
-  - `oracle/compliance-export-workflow/`: Compliance report export workflow.
-  - `oracle/project.yaml`: CRE project settings.
-- `backend/`: core backend for KYC orchestration and API gateway.
-- `square-testing-cafe-integration/`: Square sandbox/testing backend.
-- `frontend/`: frontend app workspace.
+[![Chainlink BUILD](https://img.shields.io/badge/Chainlink-CRE-blue.svg)](https://chain.link)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Quick Start (Oracle)
+*Connecting Main Street to Decentralized Finance through Chainlink CRE.*
 
-1. `cd oracle/square-workflow`
-2. `bun install`
-3. Run CRE commands from `oracle/` (where `project.yaml` lives).
+</div>
+
+---
+
+## 📖 1. Project Overview
+
+**Zawyafi** is a fully compliant, real-world asset (RWA) investment platform that enables users to invest in everyday physical businesses—ranging from local cafes and bakeries to automated vending machines and large-scale manufacturing facilities.
+
+Through tokenization, Zawyafi turns business inventory and future revenue streams into fractions of liquid, high-yield digital assets.
+
+### The Core Problem
+
+Today's localized businesses suffer from a severe **lack of liquidity** due to traditional financial friction, while everyday investors are locked out of private-market yield generation due to high minimum tickets.
+
+Furthermore, current RWA platforms suffer from a **fundamental lack of trust**: *how can an on-chain investor trust the off-chain revenue metrics of a local cafe?*
+
+### The Zawyafi Solution
+
+We solve this using **Chainlink CRE (Chainlink Run Environment)** to cryptographically connect off-chain Point-of-Sale (POS) systems, ERPs, and IoT Vending machines directly to on-chain smart contracts. This guarantees **absolute transparency and tamper-proof revenue reporting**.
+
+By lowering the barrier to entry to just **$10**, Zawyafi democratizes access to institutional-grade, real-world yield.
+
+---
+
+## 💼 2. Business Value
+
+### 🏢 For Businesses (Issuers)
+
+Solve the lack of liquidity without giving up equity or taking predatory loans.
+
+- **Raise Liquidity Fast**: Turn your daily inventory (e.g., cups of coffee, baked goods) into upfront capital.
+- **Global Investors**: Tap into a borderless, permissionless pool of global Web3 investors.
+- **All-in-One Platform**: Manage tokenization, automated payouts, and compliance seamlessly in one dashboard.
+
+*Example: A local cafe needs $30,000 to expand. They tokenize their future inventory:*
+
+- ☕ **Coffee**: $10,000 target → Tokenized at $2 per unit/order
+- 🥐 **Bakery**: $10,000 target → Tokenized at $3 per unit/order
+- 🥪 **Sandwiches**: $10,000 target → Tokenized at $4 per unit/order
+
+### 👥 For Investors
+
+- **Real-World Yield**: Earn sustainable returns backed by physical commerce, not speculative tokenomics.
+- **On-Chain Ownership**: Immutable, cryptographic proof of your fractional ownership.
+- **Transparent Assets**: Real-time business revenue proven by Chainlink CRE.
+- **Fractional Investments**: Accessible fractional investments starting from just $10.
+- **High Yield Rates**: Competitive APRs derived directly from business profit margins.
+- **Flexible Payouts**: Automated distribution schedules (Weekly, Monthly, Yearly).
+
+---
+
+## ✨ 3. Key Features
+
+- 🪙 **Tokenized Real-World Assets**: Immutable, divisible, and programmable representations of physical business inventory.
+- 🔐 **Private KYC Verification**: Privacy-preserving identity verification.
+- 🏛 **Compliance-Ready Infrastructure**: Built-in regulatory safeguards adhering to international financial standards.
+- ⚡ **Smart Contract Settlement**: Trustless, automated payout distribution based on cryptographically verified revenue.
+- 💳 **Fiat & Crypto Payments**: Seamless on-ramping for mainstream retail alongside Web3 natives. (Not Implemented Yet)
+
+---
+
+## 🏗️ 4. Technical Architecture & CRE Usage
+
+The fundamental challenge in RWA is the "Oracle Problem": securing the connection between off-chain reality and on-chain logic. Zawyafi utilizes **Chainlink CRE** as the ultimate bridge of trust.
+
+By running trust-minimized off-chain computation, CRE fetches data directly from integrated APIs (like Square POS, local ERPs, or custom hardware API endpoints) and publishes verified revenue and settlement metadata on-chain.
+
+### 🔄 CRE Workflows
+
+#### 1. POS Integration & Revenue Tracking (Square Workflow)
+
+*Use Case: Fetching daily sales data from a Cafe's Square POS system to trigger on-chain investor payouts.*
+
+```mermaid
+sequenceDiagram
+    participant POS as "Square POS (Off-Chain)"
+    participant CRE as "Chainlink CRE"
+    participant SC as "Settlement Smart Contract"
+    participant INV as "Investors"
+    
+    POS->>CRE: 1. Record daily unit sales (Coffee/Bakery)
+    activate CRE
+    CRE->>CRE: 2. Cryptographic validation & aggregation
+    CRE->>SC: 3. Post verified revenue proof on-chain
+    deactivate CRE
+    activate SC
+    SC->>SC: 4. Calculate yield per fractional share
+    SC-->>INV: 5. Auto-distribute USDC yields
+    deactivate SC
+```
+
+#### 2. KYC On-Chain Settlement Workflow
+
+*Use Case: Securely settling user verification status on-chain without exposing PII (Personally Identifiable Information).*
+
+```mermaid
+sequenceDiagram
+    participant KYC as "KYC Provider (Off-Chain)"
+    participant API as "Zawyafi Backend"
+    participant CRE as "Chainlink CRE"
+    participant SC as "Identity Manager (On-Chain)"
+    
+    KYC->>API: 1. User passes KYC checks
+    API->>CRE: 2. Request on-chain status update (ZKP/Hash)
+    activate CRE
+    CRE->>CRE: 3. Verify API signature & auth
+    CRE->>SC: 4. Transact status (Whitelisted/Rejected)
+    deactivate CRE
+    SC-->>SC: 5. Update investor trading permissions
+```
+
+#### 3. Compliance & Audit Export Workflow
+
+*Use Case: Generating real-time, mathematically proven audit trails for regulators.*
+
+```mermaid
+sequenceDiagram
+    participant SC as "Smart Contracts (On-Chain)"
+    participant CRE as "Chainlink CRE"
+    participant REG as "Regulatory Data Lake"
+    
+    SC->>CRE: 1. Emit trade & settlement events
+    activate CRE
+    CRE->>CRE: 2. Aggregate & format compliance report
+    CRE->>REG: 3. Push immutable audit manifest to Off-Chain Vault
+    deactivate CRE
+```
+
+---
+
+## 📂 5. Repository Structure
+
+This repository is organized as a clean, microservice-ready architecture:
+
+- `docs/`: In-depth product, architecture, and deliverables documentation.
+- `oracle-CRE-Integrations/`: Core Chainlink CRE oracle logic.
+  - `square-workflow/`: Square revenue off-chain fetching.
+  - `kyc-settlement-workflow/`: KYC status onchain settlement.
+  - `compliance-export-workflow/`: Exporting audit reports.
+- `smart-contracts/`: Immutable EVM contracts managing fractional tokenization, yields, and identity.
+- `backend/`: Core backend and API gateway for orchestrating KYC and off-chain syncs.
+- `frontend/`: Next.js web application for issuers and investors.
+- `square-testing-cafe-integration/`: Square sandbox testing and simulation backend.
+
+---
+
+## 🚀 6. Quick Start (Oracle CRE)
+
+To spin up and test the Chainlink CRE integration locally:
+
+1. Navigate to the desired workflow:
+
+   ```bash
+   cd oracle-CRE-Integrations/square-workflow
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   bun install
+   ```
+
+3. Test your CRE workflows using the Chainlink CLI:
+
+   ```bash
+   # Follow local CLI commands specific to the project.yaml configuration
+   ```
+
+---
+
+<div align="center">
+  <i>Built with ❤️ for the Chainlink Hackathon.</i>
+</div>
