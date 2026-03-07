@@ -100,6 +100,33 @@ sequenceDiagram
     deactivate SC
 ```
 
+<details>
+<summary>Technical Flow Diagram</summary>
+
+```mermaid
+graph TD
+    A[Cron Trigger / Manual Execution] --> B[Fetch Data: Square POS API]
+    B --> C[Process Data: Analyze Payment Notes]
+    C --> D[Categorize & Aggregate Revenue]
+    D --> E[Query On-Chain: OracleCoordinator]
+    E --> F[Check: Is Investment Batch Finished?]
+
+    F -->|Yes| G[Halt Execution: Batch Complete]
+    F -->|No| H[Hash Categories via keccak256]
+
+    H --> I[Filter: Keep Only Tokenized Categories]
+    I --> J[Check: Is Period Already Recorded On-Chain?]
+
+    J -->|Yes| K[Halt Execution: Period Already Processed]
+    J -->|No| L[Generate Cryptographic Revenue Reports]
+
+    L --> M[Chainlink CRE: writeReport Txs]
+    M --> N[On-Chain Settlement: OracleCoordinator]
+    N --> O[Distribute USDC Yields to Investors]
+```
+
+</details>
+
 #### 2. KYC On-Chain Settlement Workflow
 
 *Use Case: Securely settling user verification status on-chain without exposing PII (Personally Identifiable Information).*
