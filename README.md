@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌐 [Zawyafi](https://www.zawyafi.com/)
+# <a href="https://www.zawyafi.com/"><img src="./frontend/public/zawyafi-outlined-z.svg" width="50" alt="Zawyafi Logo" valign="middle" /> Zawyafi</a>
 
 **Institutional-Grade Web3 Infrastructure for Real-World Asset (RWA) Investments**
 
