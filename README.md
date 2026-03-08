@@ -9,6 +9,8 @@
 
 _Connecting Main Street to Decentralized Finance through Chainlink CRE._
 
+_Demo live: https://www.zawyafi.com_
+
 </div>
 
 ---
