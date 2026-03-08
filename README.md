@@ -222,6 +222,40 @@ But here is the essential information:
 
 > **Note:** The Square workflow is designed to run once daily as it fetches only the previous day's sales data. If executed multiple times in a single day, the workflow will skip processing and indicate that the period has already been reported.
 
+## 6.2 You can quary the periods using this command with Dune
+
+```sql
+-- ============================================================
+-- Fetch netUnitsSold from PeriodRecorded events on Sepolia
+-- Contract: 0xfDb35eaeAB99fbC5eBD9D5929e2233acc5ee0BEA
+-- ============================================================
+
+SELECT
+    block_time,
+    block_number,
+    tx_hash,
+
+    -- Indexed params (from topics)
+    topic1                                                          AS periodId,
+    topic2                                                          AS merchantIdHash,
+    topic3                                                          AS productIdHash,
+
+    -- Non-indexed params (from data field, each param = 32 bytes)
+    bytearray_to_uint256(bytearray_substring(data, 1,  32))        AS status,         -- bytes 1–32
+    bytearray_to_uint256(bytearray_substring(data, 33, 32))        AS netUnitsSold,   -- bytes 33–64
+    bytearray_substring(data, 65, 32)                               AS batchHash       -- bytes 65–96
+
+FROM sepolia.logs
+WHERE
+    contract_address = 0xfDb35eaeAB99fbC5eBD9D5929e2233acc5ee0BEA
+
+    -- topic0 = keccak256('PeriodRecorded(bytes32,bytes32,bytes32,uint8,uint256,bytes32)')
+    AND topic0 = 0x62adc0da28be6630fb65248c06c4dd0d19f027d817b2624c10d4dfbd58a62fc2
+
+ORDER BY block_time DESC
+LIMIT 100;
+```
+
 ## 7. Smart contracts addresses (Sepolia Testnet)
 
 - **IdentityRegistry:** `0xc15869818c5E69373B04dd0433c7Ab46848e1AB4`

@@ -16930,8 +16930,12 @@ var settlementVaultReadAbi = parseAbi([
   "function isBatchFinished(uint256 batchId) view returns (bool)",
   "function factory() view returns (address)"
 ]);
-var factoryReadAbi = parseAbi(["function getBatchCategoryHashes(uint256 batchId) view returns (bytes32[])"]);
-var revenueRegistryReadAbi = parseAbi(["function isPeriodRecorded(bytes32 periodId) view returns (bool)"]);
+var factoryReadAbi = parseAbi([
+  "function getBatchCategoryHashes(uint256 batchId) view returns (bytes32[])"
+]);
+var revenueRegistryReadAbi = parseAbi([
+  "function isPeriodRecorded(bytes32 periodId) view returns (bool)"
+]);
 var configSchema = exports_external.object({
   schedule: exports_external.string().describe("Cron schedule for the workflow"),
   squareBaseUrl: exports_external.string().describe("Square API Base URL"),
@@ -17002,8 +17006,12 @@ var sendSquareGet = (nodeRuntime, httpClient, config, url, squareToken) => {
           method: "GET",
           url,
           multiHeaders: {
-            Authorization: { values: ["Bearer {{.SQUARE_PAT}}"] },
-            "Square-Version": { values: [config.squareVersion] },
+            Authorization: {
+              values: ["Bearer {{.SQUARE_PAT}}"]
+            },
+            "Square-Version": {
+              values: [config.squareVersion]
+            },
             Accept: { values: ["application/json"] }
           }
         },
@@ -17155,7 +17163,10 @@ var submitReport = (runtime2, report2) => {
   if (!network248) {
     throw new Error(`Network not found for chain selector name: ${runtime2.config.chainSelectorName}`);
   }
-  const encodedReport = encodeAbiParameters(periodReportAndBatchParams, [report2, runtime2.config.batchId]);
+  const encodedReport = encodeAbiParameters(periodReportAndBatchParams, [
+    report2,
+    runtime2.config.batchId
+  ]);
   const reportResponse = runtime2.report({
     encodedPayload: hexToBase64(encodedReport),
     encoderName: "evm",
@@ -17189,18 +17200,19 @@ var getScheduledDate = (runtime2, payload) => {
   }
   return new Date(seconds * 1000 + nanos / 1e6);
 };
-var getPreviousUtcDayWindow = (referenceDate) => {
-  const year = referenceDate.getUTCFullYear();
-  const month = referenceDate.getUTCMonth();
-  const day = referenceDate.getUTCDate();
-  const start = new Date(Date.UTC(year, month, day - 1, 0, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month, day - 1, 23, 59, 59, 999));
-  const periodStartSec = Math.floor(start.getTime() / 1000);
-  const periodEndSec = Math.floor(end.getTime() / 1000);
+var getPreviousEetDayWindow = (referenceDate) => {
+  const eetReferenceDate = new Date(referenceDate.getTime() + 2 * 60 * 60 * 1000);
+  const year = eetReferenceDate.getUTCFullYear();
+  const month = eetReferenceDate.getUTCMonth();
+  const day = eetReferenceDate.getUTCDate();
+  const startUtc = new Date(Date.UTC(year, month, day - 1, -2, 0, 0, 0));
+  const endUtc = new Date(Date.UTC(year, month, day - 1, 21, 59, 59, 999));
+  const periodStartSec = Math.floor(startUtc.getTime() / 1000);
+  const periodEndSec = Math.floor(endUtc.getTime() / 1000);
   const generatedAtSec = Math.max(Math.floor(referenceDate.getTime() / 1000), periodEndSec);
   return {
-    beginIso: start.toISOString(),
-    endIso: end.toISOString(),
+    beginIso: startUtc.toISOString(),
+    endIso: endUtc.toISOString(),
     periodStartSec,
     periodEndSec,
     generatedAtSec
@@ -17233,7 +17245,9 @@ var buildReportsForTokenizedCategories = (runtime2, window, tokenizedCategoryHas
   const merchantIdHash = keccak256(stringToBytes(runtime2.config.merchantId));
   const periodStart = BigInt(window.periodStartSec);
   const periodEnd = BigInt(window.periodEndSec);
-  const batchHash = keccak256(encodeAbiParameters(parseAbiParameters("uint256"), [runtime2.config.batchId]));
+  const batchHash = keccak256(encodeAbiParameters(parseAbiParameters("uint256"), [
+    runtime2.config.batchId
+  ]));
   const minEventCount = BigInt(runtime2.config.minEventCountForWrite);
   const reports = [];
   for (const categoryHash of tokenizedCategoryHashes) {
@@ -17300,7 +17314,7 @@ var buildReportsForTokenizedCategories = (runtime2, window, tokenizedCategoryHas
 };
 var onCronTrigger = (runtime2, payload) => {
   const scheduledDate = getScheduledDate(runtime2, payload);
-  const window = getPreviousUtcDayWindow(scheduledDate);
+  const window = getPreviousEetDayWindow(scheduledDate);
   const network248 = getNetwork({
     chainFamily: "evm",
     chainSelectorName: runtime2.config.chainSelectorName,
