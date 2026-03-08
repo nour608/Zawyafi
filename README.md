@@ -224,7 +224,7 @@ But here is the essential information:
 
 ## 6.2 You can quary the periods using this command with Dune
 
-```sql
+```bash
 -- ============================================================
 -- Fetch netUnitsSold from PeriodRecorded events on Sepolia
 -- Contract: 0xfDb35eaeAB99fbC5eBD9D5929e2233acc5ee0BEA
