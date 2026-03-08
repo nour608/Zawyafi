@@ -7,7 +7,7 @@
 [![Chainlink BUILD](https://img.shields.io/badge/Chainlink-CRE-blue.svg)](https://chain.link/chainlink-runtime-environment)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-*Connecting Main Street to Decentralized Finance through Chainlink CRE.*
+_Connecting Main Street to Decentralized Finance through Chainlink CRE._
 
 </div>
 
@@ -23,7 +23,7 @@ Through tokenization, Zawyafi turns business inventory and future revenue stream
 
 Today's localized businesses suffer from a severe **lack of liquidity** due to traditional financial friction, while everyday investors are locked out of private-market yield generation due to high minimum tickets.
 
-Furthermore, current RWA platforms suffer from a **fundamental lack of trust**: *how can an on-chain investor trust the off-chain revenue metrics of a local cafe?*
+Furthermore, current RWA platforms suffer from a **fundamental lack of trust**: _how can an on-chain investor trust the off-chain revenue metrics of a local cafe?_
 
 ### The Zawyafi Solution
 
@@ -43,7 +43,7 @@ Solve the lack of liquidity without giving up equity or taking predatory loans.
 - **Global Investors**: Tap into a borderless, permissionless pool of global Web3 investors.
 - **All-in-One Platform**: Manage tokenization, automated payouts, and compliance seamlessly in one dashboard.
 
-*Example: A local cafe needs $30,000 to expand. They tokenize their future inventory:*
+_Example: A local cafe needs $30,000 to expand. They tokenize their future inventory:_
 
 - **Coffee**: $10,000 target → Tokenized at $2 per unit/order
 - **Bakery**: $10,000 target → Tokenized at $3 per unit/order
@@ -80,7 +80,7 @@ By running trust-minimized off-chain computation, CRE fetches data directly from
 
 #### 1. POS Integration & Revenue Tracking (Square Workflow)
 
-*Use Case: Fetching daily sales data from a Cafe's Square POS system to trigger on-chain investor payouts.*
+_Use Case: Fetching daily sales data from a Cafe's Square POS system to trigger on-chain investor payouts._
 
 ```mermaid
 sequenceDiagram
@@ -88,7 +88,7 @@ sequenceDiagram
     participant CRE as "Chainlink CRE"
     participant SC as "Settlement Smart Contract"
     participant INV as "Investors"
-    
+
     POS->>CRE: 1. Record daily unit sales (Coffee/Bakery)
     activate CRE
     CRE->>CRE: 2. Cryptographic validation & aggregation
@@ -129,7 +129,7 @@ graph TD
 
 #### 2. KYC On-Chain Settlement Workflow
 
-*Use Case: Securely settling user verification status on-chain without exposing PII (Personally Identifiable Information).*
+_Use Case: Securely settling user verification status on-chain without exposing PII (Personally Identifiable Information)._
 
 ```mermaid
 sequenceDiagram
@@ -137,7 +137,7 @@ sequenceDiagram
     participant API as "Zawyafi Backend"
     participant CRE as "Chainlink CRE"
     participant SC as "Identity Manager (On-Chain)"
-    
+
     KYC->>API: 1. User passes KYC checks
     API->>CRE: 2. Request on-chain status update (Hash)
     activate CRE
@@ -149,14 +149,14 @@ sequenceDiagram
 
 #### 3. Compliance & Audit Export Workflow
 
-*Use Case: Generating real-time, mathematically proven audit trails for regulators.*
+_Use Case: Generating real-time, mathematically proven audit trails for regulators._
 
 ```mermaid
 sequenceDiagram
     participant SC as "Smart Contracts (On-Chain)"
     participant CRE as "Chainlink CRE"
     participant REG as "Regulatory Data Lake"
-    
+
     SC->>CRE: 1. Emit trade & settlement events
     activate CRE
     CRE->>CRE: 2. Aggregate & format compliance report
@@ -224,6 +224,8 @@ But here is the essential information:
 
 ## 6.2 You can quary the periods using this command with Dune
 
+<details>
+
 ```bash
 -- ============================================================
 -- Fetch netUnitsSold from PeriodRecorded events on Sepolia
@@ -255,6 +257,8 @@ WHERE
 ORDER BY block_time DESC
 LIMIT 100;
 ```
+
+</details>
 
 ## 7. Smart contracts addresses (Sepolia Testnet)
 
