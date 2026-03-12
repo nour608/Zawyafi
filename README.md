@@ -217,7 +217,7 @@ But here is the essential information:
    For KYC and Compliance workflows add .env file to the kyc-settlement-workflow directory and use the following:
 
    ```bash
-   BACKEND_INTERNAL_TOKEN=3c788e794c1085b3b50e467733f51f2c2488431b322c82425d394db30bbacbc8
+   BACKEND_INTERNAL_TOKEN=
    ```
 
 ---
