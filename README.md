@@ -208,7 +208,7 @@ But here is the essential information:
    export CRE_ETH_PRIVATE_KEY="$(sed -n 's/^CRE_ETH_PRIVATE_KEY=//p' .env | tr -d '\r\n' | tr -d '"')"
    ```
 
-3. To test the square workflow add .env file to the square-workflow directory and use the following PAT:
+3. To test the square workflow add .env file to the square-workflow directory and use the following PAT (Sandbox PAT):
 
    ```bash
    SQUARE_PAT=EAAAlzEStIqpKw1oHOlvwxGco2dR03qOpfzJD23YJq8FJ_pAaQ_U6RGYt5_4gjI_
