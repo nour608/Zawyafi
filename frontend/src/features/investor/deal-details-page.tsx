@@ -15,7 +15,6 @@ import { useMemo, useState } from 'react'
 import { getContract, prepareContractCall } from 'thirdweb'
 import { useActiveAccount, useReadContract } from 'thirdweb/react'
 import { formatUnits } from 'viem'
-import { InvestorConnectGate } from '@/components/shared/investor-connect-gate'
 import { TxStatus } from '@/components/shared/tx-status'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -216,11 +215,7 @@ export const DealDetailsPage = () => {
     const statusLabel = onChain?.closed ? 'Closed' : onChain?.active ? 'Live Round' : 'Paused'
 
     return (
-        <InvestorConnectGate
-            title="Connect to view deal details"
-            description="Deal metrics and investment actions are available after wallet login."
-        >
-            <main className="space-y-6">
+        <main className="space-y-6">
                 {/* Back */}
                 <div className="flex items-center justify-between">
                     <Link
@@ -385,6 +380,5 @@ export const DealDetailsPage = () => {
                     </>
                 )}
             </main>
-        </InvestorConnectGate>
     )
 }

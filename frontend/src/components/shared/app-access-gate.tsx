@@ -13,7 +13,7 @@ type AppAccessGateProps = {
   children: ReactNode
 }
 
-type AccessRequirement = 'authenticated' | 'merchant' | 'compliance' | 'admin'
+type AccessRequirement = 'public' | 'authenticated' | 'merchant' | 'compliance' | 'admin'
 
 const resolveAccessRequirement = (pathname: string): AccessRequirement => {
   if (pathname.startsWith('/admin')) {
@@ -28,11 +28,15 @@ const resolveAccessRequirement = (pathname: string): AccessRequirement => {
     return 'compliance'
   }
 
+  if (pathname.startsWith('/investor/marketplace') || pathname.startsWith('/investor/deal/')) {
+    return 'public'
+  }
+
   return 'authenticated'
 }
 
 const hasAccess = (requirement: AccessRequirement, capabilities: RoleCapability): boolean => {
-  if (requirement === 'authenticated') {
+  if (requirement === 'public' || requirement === 'authenticated') {
     return true
   }
 
@@ -47,7 +51,7 @@ const hasAccess = (requirement: AccessRequirement, capabilities: RoleCapability)
   return capabilities.canUseAdmin
 }
 
-const blockedMessageByRequirement: Record<AccessRequirement, string> = {
+const blockedMessageByRequirement: Record<Exclude<AccessRequirement, 'public'>, string> = {
   authenticated: 'This section requires an authenticated wallet session.',
   merchant: 'This section requires a merchant or admin wallet.',
   compliance: 'This section requires a compliance or admin wallet.',
@@ -60,6 +64,10 @@ export const AppAccessGate = ({ children }: AppAccessGateProps) => {
   const { isConnected, capabilities, isCapabilitiesLoading } = useCapabilities()
 
   const requirement = useMemo(() => resolveAccessRequirement(pathname), [pathname])
+
+  if (requirement === 'public') {
+    return <>{children}</>
+  }
 
   if (connectionStatus === 'unknown' || connectionStatus === 'connecting') {
     return (

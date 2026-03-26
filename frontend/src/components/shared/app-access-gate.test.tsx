@@ -58,7 +58,20 @@ describe('AppAccessGate', () => {
     state.capabilities = { ...defaultCapabilities }
   })
 
-  it('blocks disconnected users across app routes', () => {
+  it('allows unauthenticated users to view marketplace', () => {
+    render(
+      <AppAccessGate>
+        <div>Marketplace Content</div>
+      </AppAccessGate>,
+    )
+
+    expect(screen.getByText('Marketplace Content')).toBeInTheDocument()
+    expect(screen.queryByText('Authentication required')).not.toBeInTheDocument()
+  })
+
+  it('blocks disconnected users on protected investor routes', () => {
+    state.pathname = '/investor/portfolio'
+
     render(
       <AppAccessGate>
         <div>Protected Content</div>
@@ -115,7 +128,8 @@ describe('AppAccessGate', () => {
     expect(screen.getByText('KYC Content')).toBeInTheDocument()
   })
 
-  it('shows connect option while wallet status is unknown', () => {
+  it('shows connect option while wallet status is unknown on protected routes', () => {
+    state.pathname = '/investor/portfolio'
     state.connectionStatus = 'unknown'
 
     render(

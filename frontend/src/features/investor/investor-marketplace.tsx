@@ -7,7 +7,6 @@ import { formatUnits } from 'viem'
 import { useActiveAccount, useActiveWallet, useDisconnect } from 'thirdweb/react'
 import { clearWalletAuthSession } from '@/lib/api/wallet-auth'
 import { formatShortHash } from '@/lib/utils/format'
-import { InvestorConnectGate } from '@/components/shared/investor-connect-gate'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -142,11 +141,7 @@ export const InvestorMarketplace = () => {
   }, [batches, statusFilter, search])
 
   return (
-    <InvestorConnectGate
-      title="Connect to browse the marketplace"
-      description="Investment opportunities are visible after wallet login."
-    >
-      <main className="space-y-6">
+    <main className="space-y-6">
         {/* Hero header — matches production */}
         <div className="rounded-xl border border-line bg-panel/60 p-5">
           <div className="flex items-start justify-between gap-4">
@@ -241,6 +236,5 @@ export const InvestorMarketplace = () => {
           </div>
         )}
       </main>
-    </InvestorConnectGate>
   )
 }
