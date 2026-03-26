@@ -7,6 +7,7 @@ import { formatUnits } from 'viem'
 import { useActiveAccount, useActiveWallet, useDisconnect } from 'thirdweb/react'
 import { clearWalletAuthSession } from '@/lib/api/wallet-auth'
 import { formatShortHash } from '@/lib/utils/format'
+import { WalletActionButton } from '@/components/shared/wallet-action-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -146,7 +147,7 @@ export const InvestorMarketplace = () => {
         <div className="rounded-xl border border-line bg-panel/60 p-5">
           <div className="flex items-start justify-between gap-4">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-textMuted">Investor Marketplace</p>
-            {account?.address && (
+            {account?.address ? (
               <div className="flex shrink-0 items-center gap-2">
                 <span className="text-xs font-mono text-textMuted">{formatShortHash(account.address, 6, 4)}</span>
                 <button
@@ -158,6 +159,8 @@ export const InvestorMarketplace = () => {
                   <LogOut className="size-3.5" />
                 </button>
               </div>
+            ) : (
+              <WalletActionButton labelDisconnected="Connect Wallet" variant="cc" />
             )}
           </div>
           <h1 className="mt-2 font-heading text-3xl font-bold tracking-tight text-text md:text-4xl">
