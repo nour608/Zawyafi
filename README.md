@@ -211,7 +211,7 @@ But here is the essential information:
 3. To test the square workflow add .env file to the square-workflow directory and use the following PAT (Sandbox PAT):
 
    ```bash
-   SQUARE_PAT=EAAAlzEStIqpKw1oHOlvwxGco2dR03qOpfzJD23YJq8FJ_pAaQ_U6RGYt5_4gjI_
+   SQUARE_PAT=
    ```
 
    For KYC and Compliance workflows add .env file to the kyc-settlement-workflow directory and use the following:
